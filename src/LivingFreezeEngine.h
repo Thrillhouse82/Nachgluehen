@@ -21,16 +21,41 @@ public:
     bool hasCapture() const noexcept { return capturedLength > 0; }
 
 private:
+    static constexpr int textureVoiceCount = 8;
     static constexpr double captureDurationSeconds = 0.6;
     static constexpr double maxPositionDriftMilliseconds = 35.0;
     static constexpr double maxPlaybackDrift = 0.08;
+    static constexpr double minimumWindowFraction = 0.42;
+    static constexpr double maximumWindowFraction = 0.58;
+    static constexpr double voiceSpacingFraction = 1.0 / static_cast<double>(textureVoiceCount);
+    static constexpr double cycleStartStepFraction = 0.37;
     static constexpr int transitionSamples = 256;
     static constexpr int driftUpdateSamples = 2048;
+
+    struct TextureVoice
+    {
+        double readPosition = 0.0;
+        double playbackSpeed = 1.0;
+        double windowPhase = 0.0;
+        double windowLength = 1.0;
+        double startPosition = 0.0;
+        double positionOffset = 0.0;
+        double positionTarget = 0.0;
+        double speedTarget = 1.0;
+        double stereoOffset = 0.0;
+        double stereoTarget = 0.0;
+        std::uint32_t cycle = 0;
+        bool active = false;
+    };
 
     float readLinear(const std::vector<float>& source, int length, double position) const noexcept;
     float nextRandom() noexcept;
     void captureRecent();
-    float frozenSample(int channel) noexcept;
+    void initializeVoice(TextureVoice& voice, int index) noexcept;
+    void restartVoice(TextureVoice& voice, int index) noexcept;
+    void updateVoiceTargets() noexcept;
+    float renderTexture(int channel) noexcept;
+    static float windowValue(double phase) noexcept;
 
     double currentSampleRate = 44100.0;
     int maxBlockSize = 0;
@@ -38,10 +63,8 @@ private:
     int ringWrite = 0;
     int recentSamples = 0;
     int capturedLength = 0;
-    double playbackPosition = 0.0;
     double maxPositionDriftSamples = 0.0;
     double driftSmoothingCoefficient = 1.0;
-    int crossfadeLength = 64;
     int transitionRemaining = 0;
     bool wasFrozen = false;
     float freezeGain = 0.0f;
@@ -52,6 +75,7 @@ private:
     float driftTarget = 0.0f;
     int driftUpdateCountdown = driftUpdateSamples;
     std::uint32_t randomState = 0x4e616368u;
+    std::array<TextureVoice, textureVoiceCount> voices{};
     std::vector<float> recentLeft, recentRight, frozenLeft, frozenRight;
 };
 }

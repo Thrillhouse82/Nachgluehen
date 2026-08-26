@@ -2,6 +2,7 @@
 #include "PluginProcessor.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cmath>
+#include <iostream>
 
 namespace
 {
@@ -126,7 +127,26 @@ public:
                 ++silentBlocks;
         }
         expectEquals(silentBlocks, 0);
-        expectLessThan(maximumStep, 0.5f);
+        expectLessThan(maximumStep, 0.5f, "maximum step = " + juce::String(maximumStep));
+
+        beginTest("Texture playback does not repeat a marked impulse at capture length");
+        nachgluehen::LivingFreezeEngine impulseEngine;
+        impulseEngine.prepare(1000.0, 64);
+        juce::AudioBuffer<float> impulseBuffer(2, 64);
+        for (int block = 0; block < 10; ++block)
+        {
+            impulseBuffer.clear();
+            if (block == 1)
+                impulseBuffer.setSample(0, 0, 1.0f);
+            impulseEngine.process(impulseBuffer, false, 0.0f, 0.0f);
+        }
+        juce::AudioBuffer<float> impulseOutput(2, 2000);
+        impulseOutput.clear();
+        impulseEngine.process(impulseOutput, true, 0.0f, 1.0f);
+        double repeatedDifference = 0.0;
+        for (int i = 256; i < 1200; ++i)
+            repeatedDifference += std::abs(impulseOutput.getSample(0, i) - impulseOutput.getSample(0, i + 600));
+        expectGreaterThan(repeatedDifference, 0.01);
 
         beginTest("Seeded drift is deterministic and finite");
         nachgluehen::LivingFreezeEngine a, b;
@@ -254,6 +274,8 @@ int main()
     for (int i = 0; i < runner.getNumResults(); ++i)
         if (const auto* result = runner.getResult(i))
         {
+            for (const auto& message : result->messages)
+                std::cerr << result->subcategoryName << ": " << message << "\n";
             failures += result->failures;
         }
     return failures == 0 ? 0 : 1;
