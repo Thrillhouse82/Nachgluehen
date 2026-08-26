@@ -46,6 +46,41 @@ public:
         expectWithinAbsoluteError(buffer.getSample(0, 64), 0.25f, 1.0e-6f);
         expectWithinAbsoluteError(buffer.getSample(1, 64), -0.25f, 1.0e-6f);
 
+        beginTest("Capture uses a bounded window immediately before Freeze");
+        nachgluehen::LivingFreezeEngine captureEngine;
+        captureEngine.prepare(48000.0, 128);
+        juce::AudioBuffer<float> captureBuffer(2, 128);
+        for (int block = 0; block < 160; ++block)
+        {
+            captureBuffer.clear();
+            for (int i = 0; i < 128; ++i)
+            {
+                captureBuffer.setSample(0, i, -0.75f);
+                captureBuffer.setSample(1, i, -0.75f);
+            }
+            captureEngine.process(captureBuffer, false, 0.0f, 0.0f);
+        }
+        for (int block = 0; block < 240; ++block)
+        {
+            captureBuffer.clear();
+            for (int i = 0; i < 128; ++i)
+            {
+                captureBuffer.setSample(0, i, 0.35f);
+                captureBuffer.setSample(1, i, 0.35f);
+            }
+            captureEngine.process(captureBuffer, false, 0.0f, 0.0f);
+        }
+        captureBuffer.clear();
+        captureEngine.process(captureBuffer, true, 0.0f, 1.0f);
+        expectEquals(captureEngine.getCapturedLength(), 28800);
+        for (int block = 0; block < 4; ++block)
+        {
+            captureBuffer.clear();
+            captureEngine.process(captureBuffer, true, 0.0f, 1.0f);
+        }
+        expectWithinAbsoluteError(captureBuffer.getSample(0, 127), 0.35f, 0.04f);
+        expectWithinAbsoluteError(captureBuffer.getSample(1, 127), 0.35f, 0.04f);
+
         beginTest("Capture survives changed input");
         for (int block = 0; block < 8; ++block)
         {
@@ -59,6 +94,39 @@ public:
         buffer.clear();
         engine.process(buffer, true, 0.0f, 1.0f);
         expectGreaterThan(std::abs(buffer.getSample(0, 64)), 0.01f);
+
+        beginTest("Repeated freeze playback remains dense and finite");
+        nachgluehen::LivingFreezeEngine continuityEngine;
+        continuityEngine.prepare(48000.0, 128);
+        for (int block = 0; block < 8; ++block)
+        {
+            buffer.clear();
+            for (int i = 0; i < 128; ++i) { buffer.setSample(0, i, 0.4f); buffer.setSample(1, i, 0.4f); }
+            continuityEngine.process(buffer, false, 0.0f, 0.0f);
+        }
+        buffer.clear();
+        continuityEngine.process(buffer, true, 0.0f, 1.0f);
+        float previous = buffer.getSample(0, 0);
+        int silentBlocks = 0;
+        float maximumStep = 0.0f;
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            continuityEngine.process(buffer, true, 0.0f, 1.0f);
+            float blockPeak = 0.0f;
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const auto sample = buffer.getSample(0, i);
+                expect(std::isfinite(sample));
+                blockPeak = juce::jmax(blockPeak, std::abs(sample));
+                maximumStep = juce::jmax(maximumStep, std::abs(sample - previous));
+                previous = sample;
+            }
+            if (blockPeak < 0.05f)
+                ++silentBlocks;
+        }
+        expectEquals(silentBlocks, 0);
+        expectLessThan(maximumStep, 0.5f);
 
         beginTest("Seeded drift is deterministic and finite");
         nachgluehen::LivingFreezeEngine a, b;
@@ -142,6 +210,36 @@ public:
             maximumDrift.process(maximumInput, true, 1.0f, 1.0f);
         }
         expectGreaterThan(difference, 0.001);
+
+        beginTest("Higher Drift produces a stronger seeded change than low Drift");
+        nachgluehen::LivingFreezeEngine zeroForComparison, lowDrift, highDrift;
+        zeroForComparison.prepare(48000.0, 4096);
+        lowDrift.prepare(48000.0, 4096); highDrift.prepare(48000.0, 4096);
+        zeroForComparison.setSeed(91);
+        lowDrift.setSeed(91); highDrift.setSeed(91);
+        juce::AudioBuffer<float> lowBuffer(2, 4096), highBuffer(2, 4096), zeroBuffer(2, 4096);
+        for (int i = 0; i < 4096; ++i)
+        {
+            const auto v = std::sin(i * 0.071f) + 0.2f * std::sin(i * 0.013f);
+            lowBuffer.setSample(0, i, v); lowBuffer.setSample(1, i, v);
+            highBuffer.setSample(0, i, v); highBuffer.setSample(1, i, v);
+            zeroBuffer.setSample(0, i, v); zeroBuffer.setSample(1, i, v);
+        }
+        zeroForComparison.process(zeroBuffer, false, 0.0f, 0.0f);
+        lowDrift.process(lowBuffer, false, 0.0f, 0.0f);
+        highDrift.process(highBuffer, false, 0.0f, 0.0f);
+        zeroBuffer.clear(); lowBuffer.clear(); highBuffer.clear();
+        zeroForComparison.process(zeroBuffer, true, 0.0f, 1.0f);
+        lowDrift.process(lowBuffer, true, 0.15f, 1.0f);
+        highDrift.process(highBuffer, true, 1.0f, 1.0f);
+        double lowDifference = 0.0, highDifference = 0.0;
+        for (int i = 0; i < 4096; ++i)
+        {
+            lowDifference += std::abs(lowBuffer.getSample(0, i) - zeroBuffer.getSample(0, i));
+            highDifference += std::abs(highBuffer.getSample(0, i) - zeroBuffer.getSample(0, i));
+        }
+        expectGreaterThan(lowDifference, 0.0001);
+        expectGreaterThan(highDifference, lowDifference);
     }
 };
 LivingFreezeTests livingFreezeTests;
@@ -155,6 +253,8 @@ int main()
     int failures = 0;
     for (int i = 0; i < runner.getNumResults(); ++i)
         if (const auto* result = runner.getResult(i))
+        {
             failures += result->failures;
+        }
     return failures == 0 ? 0 : 1;
 }

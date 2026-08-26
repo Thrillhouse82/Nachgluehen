@@ -9,12 +9,14 @@ void LivingFreezeEngine::prepare(double sampleRate, int blockSize, int numChanne
 {
     currentSampleRate = juce::jmax(1.0, sampleRate);
     maxBlockSize = juce::jmax(1, blockSize);
-    ringCapacity = juce::jmax(1, static_cast<int>(currentSampleRate * maxCaptureSeconds));
+    ringCapacity = juce::jmax(1, static_cast<int>(currentSampleRate * 4.0));
     recentLeft.assign(static_cast<size_t>(ringCapacity), 0.0f);
     recentRight.assign(static_cast<size_t>(ringCapacity), 0.0f);
     frozenLeft.assign(static_cast<size_t>(ringCapacity), 0.0f);
     frozenRight.assign(static_cast<size_t>(ringCapacity), 0.0f);
     crossfadeLength = juce::jlimit(16, 256, static_cast<int>(currentSampleRate * 0.008));
+    maxPositionDriftSamples = currentSampleRate * maxPositionDriftMilliseconds * 0.001;
+    driftSmoothingCoefficient = 1.0 - std::exp(-1.0 / (currentSampleRate * 0.08));
     juce::ignoreUnused(numChannels);
     reset();
 }
@@ -32,7 +34,6 @@ void LivingFreezeEngine::reset()
     dryWetCurrent = 0.5f;
     driftCurrent = driftTarget = 0.0f;
     driftUpdateCountdown = driftUpdateSamples;
-    driftPhase = 0.0;
 }
 
 void LivingFreezeEngine::setSeed(std::uint32_t seed) noexcept
@@ -64,7 +65,8 @@ float LivingFreezeEngine::readLinear(const std::vector<float>& source, int lengt
 
 void LivingFreezeEngine::captureRecent()
 {
-    capturedLength = juce::jmin(recentSamples, ringCapacity);
+    const auto captureSamples = juce::jmax(1, static_cast<int>(currentSampleRate * captureDurationSeconds));
+    capturedLength = juce::jmin(recentSamples, captureSamples);
     if (capturedLength <= 0)
         return;
     const auto start = (ringWrite - capturedLength + ringCapacity) % ringCapacity;
@@ -75,7 +77,6 @@ void LivingFreezeEngine::captureRecent()
         frozenRight[static_cast<size_t>(i)] = recentRight[static_cast<size_t>(sourceIndex)];
     }
     playbackPosition = 0.0;
-    driftPhase = 0.0;
 }
 
 float LivingFreezeEngine::frozenSample(int channel) noexcept
@@ -84,7 +85,7 @@ float LivingFreezeEngine::frozenSample(int channel) noexcept
         return 0.0f;
 
     const auto channelOffset = channel == 0 ? -1.0 : 1.0;
-    const auto position = playbackPosition + channelOffset * static_cast<double>(driftCurrent) * 3.0;
+    const auto position = playbackPosition + channelOffset * static_cast<double>(driftCurrent) * maxPositionDriftSamples;
     const auto& source = channel == 0 ? frozenLeft : frozenRight;
     const auto main = readLinear(source, capturedLength, position);
     const auto boundary = juce::jmin(juce::jmax(2, static_cast<int>(crossfadeLength * (1.0f + 0.5f * std::abs(driftCurrent)))), capturedLength / 2);
@@ -145,11 +146,11 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
         if (driftValue > 0.0f && --driftUpdateCountdown <= 0)
         {
             driftTarget = nextRandom() * driftValue;
-            driftUpdateCountdown = driftUpdateSamples + static_cast<int>((nextRandom() + 1.0f) * driftUpdateSamples * 0.5f);
+            driftUpdateCountdown = static_cast<int>(currentSampleRate * 0.35)
+                + static_cast<int>((nextRandom() + 1.0f) * currentSampleRate * 0.325);
         }
-        const auto driftStep = driftValue > 0.0f ? 1.0f / static_cast<float>(driftUpdateCountdown + 1) : 0.0f;
+        const auto driftStep = driftValue > 0.0f ? static_cast<float>(driftSmoothingCoefficient) : 1.0f;
         driftCurrent += (driftTarget - driftCurrent) * driftStep;
-        driftPhase += static_cast<double>(driftCurrent) * 0.00002;
         if (driftValue == 0.0f)
             driftCurrent = driftTarget = 0.0f;
 
@@ -165,7 +166,7 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
 
         if (freeze && capturedLength > 0)
         {
-            const auto speed = 1.0 + static_cast<double>(driftCurrent) * 0.02 + std::sin(driftPhase) * driftValue * 0.002;
+            const auto speed = 1.0 + static_cast<double>(driftCurrent) * maxPlaybackDrift;
             playbackPosition += speed;
             if (playbackPosition >= capturedLength)
                 playbackPosition = std::fmod(playbackPosition, static_cast<double>(capturedLength));

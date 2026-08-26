@@ -1,10 +1,4 @@
-# living-freeze Specification
-
-## Purpose
-
-This capability turns a recent stereo audio moment into an indefinitely sustaining texture whose movement remains smooth, subtle at low Drift, and non-periodic rather than sounding like a static loop.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Live passthrough and recent material
 The processor SHALL pass the live stereo input through as the source signal when Freeze is disabled and SHALL continuously retain enough recent audio to capture a fixed, bounded fragment immediately preceding a Freeze activation. The capture duration SHALL be selected within approximately 500–750 ms and SHALL be independent of the total recent-history capacity.
@@ -13,13 +7,13 @@ The processor SHALL pass the live stereo input through as the source signal when
 - **WHEN** Freeze is disabled and Dry/Wet is set to 0%
 - **THEN** the output matches the current stereo input within normal floating-point processing tolerance
 
-#### Scenario: Recent audio is available for capture
-- **WHEN** Freeze is enabled after audio has been received
-- **THEN** the processor captures a non-empty fragment from recently received input without requiring new input to replace it
-
 #### Scenario: Recent audio is available for bounded capture
 - **WHEN** Freeze is enabled after more than the configured capture duration of audio has been received
 - **THEN** the processor captures a non-empty fragment whose length is approximately the configured duration and whose samples come from immediately before the Freeze trigger
+
+#### Scenario: Recent audio is available for capture
+- **WHEN** Freeze is enabled after audio has been received
+- **THEN** the processor captures a non-empty fragment from recently received input without requiring new input to replace it
 
 #### Scenario: Capture does not include older history
 - **WHEN** audio older than the configured capture window differs materially from the audio immediately preceding Freeze
@@ -81,29 +75,3 @@ The processor SHALL apply smoothed, bounded, non-periodic, slowly varying Drift 
 #### Scenario: Drift remains bounded
 - **WHEN** Drift is set anywhere in its supported range
 - **THEN** all affected playback properties remain within safe bounds, modulation changes remain continuous, and the output remains finite
-
-### Requirement: Dry/Wet mixing
-The processor SHALL mix the current live input and living-freeze signal according to Dry/Wet, with 0% fully dry and 100% fully wet, and SHALL smooth mix changes sufficiently to prevent unintended level jumps.
-
-#### Scenario: Dry output
-- **WHEN** Dry/Wet is 0%
-- **THEN** the output contains only the original live input
-
-#### Scenario: Wet output
-- **WHEN** Dry/Wet is 100% and Freeze is enabled
-- **THEN** the output contains only the living-freeze signal
-
-#### Scenario: Intermediate mix
-- **WHEN** Dry/Wet is between 0% and 100%
-- **THEN** the output is a corresponding blend of live input and living-freeze signal without an activation-related level jump
-
-### Requirement: Real-time-safe processing
-The audio processing path SHALL avoid heap allocation, blocking operations, file access, and mutex locks during the audio callback, and SHALL produce no NaN or infinite output values for valid input and parameter values.
-
-#### Scenario: Callback remains real-time safe
-- **WHEN** the processor handles valid stereo blocks during normal operation
-- **THEN** processing uses pre-prepared state without allocation, blocking, file I/O, or mutex acquisition in the callback
-
-#### Scenario: Output remains finite
-- **WHEN** valid finite input is processed with any supported parameter values
-- **THEN** every output sample is finite

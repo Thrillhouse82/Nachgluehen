@@ -21,7 +21,9 @@ public:
     bool hasCapture() const noexcept { return capturedLength > 0; }
 
 private:
-    static constexpr int maxCaptureSeconds = 4;
+    static constexpr double captureDurationSeconds = 0.6;
+    static constexpr double maxPositionDriftMilliseconds = 35.0;
+    static constexpr double maxPlaybackDrift = 0.08;
     static constexpr int transitionSamples = 256;
     static constexpr int driftUpdateSamples = 2048;
 
@@ -37,6 +39,8 @@ private:
     int recentSamples = 0;
     int capturedLength = 0;
     double playbackPosition = 0.0;
+    double maxPositionDriftSamples = 0.0;
+    double driftSmoothingCoefficient = 1.0;
     int crossfadeLength = 64;
     int transitionRemaining = 0;
     bool wasFrozen = false;
@@ -47,7 +51,6 @@ private:
     float driftCurrent = 0.0f;
     float driftTarget = 0.0f;
     int driftUpdateCountdown = driftUpdateSamples;
-    double driftPhase = 0.0;
     std::uint32_t randomState = 0x4e616368u;
     std::vector<float> recentLeft, recentRight, frozenLeft, frozenRight;
 };
