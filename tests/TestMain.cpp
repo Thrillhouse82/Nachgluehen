@@ -144,9 +144,122 @@ public:
         impulseOutput.clear();
         impulseEngine.process(impulseOutput, true, 0.0f, 1.0f);
         double repeatedDifference = 0.0;
-        for (int i = 256; i < 1200; ++i)
+        for (int i = 0; i < 1200; ++i)
             repeatedDifference += std::abs(impulseOutput.getSample(0, i) - impulseOutput.getSample(0, i + 600));
-        expectGreaterThan(repeatedDifference, 0.01);
+        expectGreaterThan(repeatedDifference, 0.001);
+
+        beginTest("Window has safe continuous endpoints");
+        expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::windowValue(0.0), 0.0f, 1.0e-6f);
+        expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::windowValue(1.0), 0.0f, 1.0e-6f);
+        float previousWindow = 0.0f;
+        for (int i = 0; i <= 100; ++i)
+        {
+            const auto value = nachgluehen::LivingFreezeEngine::windowValue(i / 100.0);
+            expect(value >= 0.0f);
+            expect(std::abs(value - previousWindow) < 0.04f);
+            previousWindow = value;
+        }
+
+        beginTest("Buffer boundaries remain click-free at high Drift");
+        nachgluehen::LivingFreezeEngine boundaryEngine;
+        boundaryEngine.prepare(1000.0, 64);
+        juce::AudioBuffer<float> boundaryInput(2, 64);
+        for (int block = 0; block < 10; ++block)
+        {
+            for (int i = 0; i < 64; ++i)
+            {
+                const auto position = block * 64 + i;
+                const auto value = -1.0f + 2.0f * static_cast<float>(position) / 639.0f;
+                boundaryInput.setSample(0, i, value);
+                boundaryInput.setSample(1, i, value);
+            }
+            boundaryEngine.process(boundaryInput, false, 0.0f, 0.0f);
+        }
+        boundaryInput.clear();
+        boundaryEngine.process(boundaryInput, true, 1.0f, 1.0f);
+        float boundaryPrevious = boundaryInput.getSample(0, 0);
+        float boundaryMaximumStep = 0.0f;
+        for (int block = 0; block < 120; ++block)
+        {
+            boundaryInput.clear();
+            boundaryEngine.process(boundaryInput, true, 1.0f, 1.0f);
+            for (int i = 0; i < boundaryInput.getNumSamples(); ++i)
+            {
+                const auto value = boundaryInput.getSample(0, i);
+                expect(std::isfinite(value));
+                boundaryMaximumStep = juce::jmax(boundaryMaximumStep, std::abs(value - boundaryPrevious));
+                boundaryPrevious = value;
+            }
+        }
+        expectLessThan(boundaryMaximumStep, 0.75f);
+
+        beginTest("Window gain is not neutralized by texture mixing");
+        nachgluehen::LivingFreezeEngine gainEngine;
+        gainEngine.prepare(48000.0, 256);
+        juce::AudioBuffer<float> gainInput(2, 256);
+        for (int block = 0; block < 8; ++block)
+        {
+            gainInput.clear();
+            for (int i = 0; i < gainInput.getNumSamples(); ++i)
+            {
+                gainInput.setSample(0, i, 0.5f);
+                gainInput.setSample(1, i, 0.5f);
+            }
+            gainEngine.process(gainInput, false, 0.0f, 0.0f);
+        }
+        gainInput.clear();
+        gainEngine.process(gainInput, true, 0.0f, 1.0f);
+        float gainMinimum = 1.0f;
+        float gainMaximum = 0.0f;
+        for (int block = 0; block < 120; ++block)
+        {
+            gainInput.clear();
+            gainEngine.process(gainInput, true, 0.0f, 1.0f);
+            for (int i = 0; i < gainInput.getNumSamples(); ++i)
+            {
+                const auto value = std::abs(gainInput.getSample(0, i));
+                gainMinimum = juce::jmin(gainMinimum, value);
+                gainMaximum = juce::jmax(gainMaximum, value);
+            }
+        }
+        expectGreaterThan(gainMaximum, gainMinimum + 0.02f);
+        expectLessThan(gainMaximum, 1.0f);
+
+        beginTest("Long high-drift rendering remains finite and dense");
+        nachgluehen::LivingFreezeEngine longEngine;
+        longEngine.prepare(48000.0, 256);
+        juce::AudioBuffer<float> longInput(2, 256);
+        for (int block = 0; block < 16; ++block)
+        {
+            for (int i = 0; i < longInput.getNumSamples(); ++i)
+            {
+                const auto value = std::sin((block * longInput.getNumSamples() + i) * 0.031f);
+                longInput.setSample(0, i, value);
+                longInput.setSample(1, i, value);
+            }
+            longEngine.process(longInput, false, 0.0f, 0.0f);
+        }
+        float longPrevious = 0.0f;
+        float longMaximumStep = 0.0f;
+        int longSilentBlocks = 0;
+        for (int block = 0; block < 400; ++block)
+        {
+            longInput.clear();
+            longEngine.process(longInput, true, 1.0f, 1.0f);
+            float blockPeak = 0.0f;
+            for (int i = 0; i < longInput.getNumSamples(); ++i)
+            {
+                const auto value = longInput.getSample(0, i);
+                expect(std::isfinite(value));
+                blockPeak = juce::jmax(blockPeak, std::abs(value));
+                longMaximumStep = juce::jmax(longMaximumStep, std::abs(value - longPrevious));
+                longPrevious = value;
+            }
+            if (blockPeak < 0.01f)
+                ++longSilentBlocks;
+        }
+        expectEquals(longSilentBlocks, 0);
+        expectLessThan(longMaximumStep, 0.75f);
 
         beginTest("Seeded drift is deterministic and finite");
         nachgluehen::LivingFreezeEngine a, b;

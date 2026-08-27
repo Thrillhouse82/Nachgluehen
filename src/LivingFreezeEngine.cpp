@@ -30,8 +30,10 @@ void LivingFreezeEngine::reset()
     transitionRemaining = 0;
     wasFrozen = false;
     freezeGain = 0.0f;
+    textureGainCompensation = 1.0f;
     dryWetCurrent = 0.5f;
     driftCurrent = driftTarget = 0.0f;
+    safetyDriftValue = 0.0f;
     driftUpdateCountdown = driftUpdateSamples;
     for (auto& voice : voices)
         voice = {};
@@ -79,12 +81,27 @@ void LivingFreezeEngine::captureRecent()
     }
     for (int i = 0; i < textureVoiceCount; ++i)
         initializeVoice(voices[static_cast<size_t>(i)], i);
+    safetyDriftValue = driftValue;
 }
 
 float LivingFreezeEngine::windowValue(double phase) noexcept
 {
     phase = juce::jlimit(0.0, 1.0, phase);
-    return static_cast<float>(std::sin(juce::MathConstants<double>::pi * phase));
+    return juce::jmax(0.0f, static_cast<float>(std::sin(juce::MathConstants<double>::pi * phase)));
+}
+
+void LivingFreezeEngine::updateVoiceSafety(TextureVoice& voice) noexcept
+{
+    const auto length = static_cast<double>(juce::jmax(1, capturedLength));
+    const auto maxReadable = juce::jmax(0.0, length - 1.0);
+    const auto offsetReserve = 2.0 + maxPositionDriftSamples * static_cast<double>(driftValue) * 1.15;
+    voice.safeReadMin = juce::jmin(offsetReserve, maxReadable);
+    voice.safeReadMax = juce::jmax(voice.safeReadMin, maxReadable - offsetReserve);
+
+    const auto maximumAdvance = voice.windowLength * (1.0 + maxPlaybackDrift);
+    voice.safeStartMin = voice.safeReadMin;
+    voice.safeStartMax = juce::jmax(voice.safeStartMin,
+                                    voice.safeReadMax - maximumAdvance);
 }
 
 void LivingFreezeEngine::initializeVoice(TextureVoice& voice, int index) noexcept
@@ -102,6 +119,9 @@ void LivingFreezeEngine::initializeVoice(TextureVoice& voice, int index) noexcep
     voice.speedTarget = 1.0;
     voice.stereoOffset = 0.0;
     voice.stereoTarget = 0.0;
+    updateVoiceSafety(voice);
+    voice.startPosition = juce::jlimit(voice.safeStartMin, voice.safeStartMax, voice.startPosition);
+    voice.readPosition = voice.startPosition;
     voice.active = capturedLength > 0;
 }
 
@@ -109,15 +129,20 @@ void LivingFreezeEngine::restartVoice(TextureVoice& voice, int index) noexcept
 {
     ++voice.cycle;
     const auto length = static_cast<double>(juce::jmax(1, capturedLength));
-    const auto spacing = length * voiceSpacingFraction;
-    const auto cycleOffset = length * cycleStartStepFraction * static_cast<double>(voice.cycle);
-    voice.startPosition = std::fmod(static_cast<double>(index) * spacing + cycleOffset, length);
     const auto driftScale = static_cast<double>(driftCurrent) * 0.08;
     const auto randomWindowOffset = driftValue > 0.0f ? nextRandom() : 0.0f;
     const auto voiceWindowVariation = 0.46 + 0.04 * static_cast<double>(index % 4) / 3.0;
     voice.windowLength = juce::jlimit(length * minimumWindowFraction,
                                       length * maximumWindowFraction,
                                       length * (voiceWindowVariation + driftScale * randomWindowOffset));
+    updateVoiceSafety(voice);
+    const auto safeRange = juce::jmax(0.0, voice.safeStartMax - voice.safeStartMin);
+    const auto spacing = juce::jmax(1.0, safeRange * voiceSpacingFraction);
+    const auto cycleOffset = safeRange * cycleStartStepFraction * static_cast<double>(voice.cycle);
+    const auto candidate = voice.safeStartMin + static_cast<double>(index) * spacing + cycleOffset;
+    voice.startPosition = juce::jlimit(voice.safeStartMin, voice.safeStartMax,
+                                       std::fmod(candidate - voice.safeStartMin,
+                                                 juce::jmax(1.0, safeRange)) + voice.safeStartMin);
     voice.readPosition = voice.startPosition;
     voice.windowPhase = 0.0;
     voice.positionOffset = 0.0;
@@ -129,6 +154,7 @@ void LivingFreezeEngine::restartVoice(TextureVoice& voice, int index) noexcept
 
 void LivingFreezeEngine::updateVoiceTargets() noexcept
 {
+    driftTarget = driftValue;
     if (driftValue <= 0.0f)
     {
         for (auto& voice : voices)
@@ -143,8 +169,15 @@ void LivingFreezeEngine::updateVoiceTargets() noexcept
     for (auto& voice : voices)
     {
         voice.positionTarget = nextRandom() * maxPositionDriftSamples * static_cast<double>(driftValue);
-        voice.speedTarget = 1.0 + nextRandom() * maxPlaybackDrift * static_cast<double>(driftValue);
+        voice.speedTarget = juce::jlimit(1.0 - maxPlaybackDrift,
+                                         1.0 + maxPlaybackDrift,
+                                         1.0 + nextRandom() * maxPlaybackDrift * static_cast<double>(driftValue));
         voice.stereoTarget = nextRandom() * 0.15 * static_cast<double>(driftValue);
+
+        const auto stereoReserve = std::abs(voice.stereoTarget) * maxPositionDriftSamples;
+        const auto minimumOffset = voice.safeReadMin + stereoReserve - voice.readPosition;
+        const auto maximumOffset = voice.safeReadMax - stereoReserve - voice.readPosition;
+        voice.positionTarget = juce::jlimit(minimumOffset, maximumOffset, voice.positionTarget);
     }
 }
 
@@ -163,11 +196,18 @@ float LivingFreezeEngine::renderTexture(int channel) noexcept
 
         const auto envelope = static_cast<double>(windowValue(voice.windowPhase));
         const auto stereoPosition = channel == 0 ? -voice.stereoOffset : voice.stereoOffset;
-        const auto position = voice.readPosition + voice.positionOffset + stereoPosition * maxPositionDriftSamples;
+        const auto rawPosition = voice.readPosition + voice.positionOffset + stereoPosition * maxPositionDriftSamples;
+        const auto position = juce::jlimit(voice.safeReadMin, voice.safeReadMax, rawPosition);
         output += static_cast<double>(readLinear(source, capturedLength, position)) * envelope;
         envelopeSum += envelope;
     }
-    return envelopeSum > 1.0e-6 ? static_cast<float>(output / envelopeSum) : 0.0f;
+    if (channel == 0)
+    {
+        const auto targetCompensation = 1.0 / juce::jmax(1.0, envelopeSum);
+        const auto smoothing = 1.0 - std::exp(-1.0 / (currentSampleRate * 0.002));
+        textureGainCompensation += static_cast<float>((targetCompensation - textureGainCompensation) * smoothing);
+    }
+    return static_cast<float>(output * static_cast<double>(textureGainCompensation));
 }
 
 void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, float drift, float dryWet)
@@ -176,6 +216,17 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
     const auto channels = juce::jmin(2, buffer.getNumChannels());
     driftValue = juce::jlimit(0.0f, 1.0f, drift);
     dryWetValue = juce::jlimit(0.0f, 1.0f, dryWet);
+
+    if (freeze && capturedLength > 0 && driftValue != safetyDriftValue)
+    {
+        for (auto& voice : voices)
+        {
+            updateVoiceSafety(voice);
+            voice.readPosition = juce::jlimit(voice.safeStartMin, voice.safeReadMax, voice.readPosition);
+        }
+        safetyDriftValue = driftValue;
+        updateVoiceTargets();
+    }
 
     if (freeze && !wasFrozen)
     {
@@ -249,7 +300,17 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
                 voice.positionOffset += (voice.positionTarget - voice.positionOffset) * smoothing;
                 voice.playbackSpeed += (voice.speedTarget - voice.playbackSpeed) * smoothing;
                 voice.stereoOffset += (voice.stereoTarget - voice.stereoOffset) * smoothing;
+                voice.playbackSpeed = juce::jlimit(1.0 - maxPlaybackDrift,
+                                                   1.0 + maxPlaybackDrift,
+                                                   voice.playbackSpeed);
+                const auto stereoReserve = std::abs(voice.stereoOffset) * maxPositionDriftSamples;
+                voice.positionOffset = juce::jlimit(voice.safeReadMin + stereoReserve - voice.readPosition,
+                                                    voice.safeReadMax - stereoReserve - voice.readPosition,
+                                                    voice.positionOffset);
                 voice.readPosition += voice.playbackSpeed;
+                voice.readPosition = juce::jlimit(voice.safeStartMin,
+                                                  voice.safeReadMax,
+                                                  voice.readPosition);
                 voice.windowPhase += voice.playbackSpeed / voice.windowLength;
                 if (voice.windowPhase >= 1.0)
                     restartVoice(voice, voiceIndex);

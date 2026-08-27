@@ -1,52 +1,4 @@
-# living-freeze Specification
-
-## Purpose
-
-This capability turns a recent stereo audio moment into an indefinitely sustaining texture whose movement remains smooth, subtle at low Drift, and non-periodic rather than sounding like a static loop.
-
-## Requirements
-
-### Requirement: Live passthrough and recent material
-The processor SHALL pass the live stereo input through as the source signal when Freeze is disabled and SHALL continuously retain enough recent audio to capture a fixed, bounded fragment immediately preceding a Freeze activation. The capture duration SHALL be selected within approximately 500-750 ms and SHALL be independent of the total recent-history capacity.
-
-#### Scenario: Unfrozen signal passes through
-- **WHEN** Freeze is disabled and Dry/Wet is set to 0%
-- **THEN** the output matches the current stereo input within normal floating-point processing tolerance
-
-#### Scenario: Recent audio is available for capture
-- **WHEN** Freeze is enabled after audio has been received
-- **THEN** the processor captures a non-empty fragment from recently received input without requiring new input to replace it
-
-#### Scenario: Recent audio is available for bounded capture
-- **WHEN** Freeze is enabled after more than the configured capture duration of audio has been received
-- **THEN** the processor captures a non-empty fragment whose length is approximately the configured duration and whose samples come from immediately before the Freeze trigger
-
-#### Scenario: Capture does not include older history
-- **WHEN** audio older than the configured capture window differs materially from the audio immediately preceding Freeze
-- **THEN** the captured fragment excludes that older audio
-
-#### Scenario: Capture is not extended by unavailable history
-- **WHEN** Freeze is enabled before the configured capture duration of audio has been received
-- **THEN** the processor captures only the available preceding audio and does not read uninitialized or future samples
-
-### Requirement: Indefinite living freeze
-When Freeze is enabled, the processor SHALL retain the captured fragment as the source of its output indefinitely, independent of subsequent input, and SHALL generate a continuous texture from multiple overlapping playback windows rather than treating the fragment as one complete repeating loop. The texture SHALL remain audible without artificial silent intervals, and no single fixed capture start shall recur as a regular attack pattern.
-
-#### Scenario: Captured material survives input changes
-- **WHEN** a fragment is captured and subsequent input changes to a materially different signal
-- **THEN** the frozen output continues to be derived from the captured fragment rather than the new input
-
-#### Scenario: Freeze playback continues
-- **WHEN** Freeze remains enabled for longer than the captured fragment duration
-- **THEN** the output remains audible and continuous through overlapping playback windows without stopping or inserting an artificial silent region at the original fragment boundary
-
-#### Scenario: Continuous signal remains continuous across repetitions
-- **WHEN** the captured fragment contains a continuously signal-bearing stereo source and Freeze remains enabled for many capture lengths
-- **THEN** the output contains no periodic extended silent sections attributable to window transitions
-
-#### Scenario: A marked capture impulse is not repeated as a classic loop
-- **WHEN** the captured fragment contains a clearly marked single impulse near its beginning and Freeze remains enabled
-- **THEN** the output does not reproduce that impulse as the same complete-buffer pattern at every captured-length interval
+## MODIFIED Requirements
 
 ### Requirement: Overlapping window playback
 When Freeze is enabled, the processor SHALL use at least two simultaneously active playback windows or equivalent read-head voices. Each voice SHALL use a soft continuous amplitude envelope whose value is zero or near zero at both window boundaries, SHALL begin at a position within a safe continuously readable region of the captured fragment, and SHALL overlap with another voice while fading out so that hard voice starts and stops are not exposed. The source material SHALL remain recognizable when Drift is zero or low.
@@ -107,7 +59,7 @@ The processor SHALL apply smoothed, bounded, non-periodic, slowly varying Drift 
 
 #### Scenario: Drift remains bounded
 - **WHEN** Drift is set anywhere in its supported range
-- **THEN** all affected playback properties remain within safe bounds, modulation changes remain continuous, and the output remains finite
+- **THEN** all affected playback properties and offsets remain within safe bounds, modulation changes remain continuous, and the output remains finite
 
 ### Requirement: Stable texture gain mixing
 The processor SHALL mix active voice contributions using their actual non-negative window envelope gains and a stable gain strategy that avoids abrupt samplewise compensation. Gain compensation SHALL reduce level variation caused by expected voice overlap without dividing by the instantaneous sum of active envelopes in a way that restores a faded single voice to constant amplitude.
@@ -123,21 +75,6 @@ The processor SHALL mix active voice contributions using their actual non-negati
 #### Scenario: Voice overlap changes smoothly
 - **WHEN** the number or envelope gains of contributing voices changes during normal texture playback
 - **THEN** the compensated texture level changes without a large abrupt output jump and without introducing a new audible modulation artifact
-
-### Requirement: Dry/Wet mixing
-The processor SHALL mix the current live input and living-freeze signal according to Dry/Wet, with 0% fully dry and 100% fully wet, and SHALL smooth mix changes sufficiently to prevent unintended level jumps.
-
-#### Scenario: Dry output
-- **WHEN** Dry/Wet is 0%
-- **THEN** the output contains only the original live input
-
-#### Scenario: Wet output
-- **WHEN** Dry/Wet is 100% and Freeze is enabled
-- **THEN** the output contains only the living-freeze signal
-
-#### Scenario: Intermediate mix
-- **WHEN** Dry/Wet is between 0% and 100%
-- **THEN** the output is a corresponding blend of live input and living-freeze signal without an activation-related level jump
 
 ### Requirement: Real-time-safe processing
 The audio processing path SHALL avoid heap allocation, blocking operations, file access, and mutex locks during the audio callback, and SHALL produce no NaN or infinite output values for valid input and parameter values. All voice state required for texture playback SHALL be prepared before audio processing begins, including any state needed to calculate safe read regions and stable gain mixing.

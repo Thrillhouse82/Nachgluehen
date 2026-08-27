@@ -19,6 +19,7 @@ public:
 
     int getCapturedLength() const noexcept { return capturedLength; }
     bool hasCapture() const noexcept { return capturedLength > 0; }
+    static float windowValue(double phase) noexcept;
 
 private:
     static constexpr int textureVoiceCount = 8;
@@ -44,6 +45,10 @@ private:
         double speedTarget = 1.0;
         double stereoOffset = 0.0;
         double stereoTarget = 0.0;
+        double safeReadMin = 0.0;
+        double safeReadMax = 0.0;
+        double safeStartMin = 0.0;
+        double safeStartMax = 0.0;
         std::uint32_t cycle = 0;
         bool active = false;
     };
@@ -53,9 +58,9 @@ private:
     void captureRecent();
     void initializeVoice(TextureVoice& voice, int index) noexcept;
     void restartVoice(TextureVoice& voice, int index) noexcept;
+    void updateVoiceSafety(TextureVoice& voice) noexcept;
     void updateVoiceTargets() noexcept;
     float renderTexture(int channel) noexcept;
-    static float windowValue(double phase) noexcept;
 
     double currentSampleRate = 44100.0;
     int maxBlockSize = 0;
@@ -68,9 +73,11 @@ private:
     int transitionRemaining = 0;
     bool wasFrozen = false;
     float freezeGain = 0.0f;
+    float textureGainCompensation = 1.0f;
     float dryWetCurrent = 0.5f;
     float dryWetValue = 0.5f;
     float driftValue = 0.2f;
+    float safetyDriftValue = 0.0f;
     float driftCurrent = 0.0f;
     float driftTarget = 0.0f;
     int driftUpdateCountdown = driftUpdateSamples;
