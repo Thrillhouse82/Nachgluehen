@@ -1,10 +1,4 @@
-# nachgluehen-ui Specification
-
-## Purpose
-
-This capability provides a minimal, fixed-size custom interface that makes the Freeze, Drift, and Dry/Wet controls easy to understand while conveying the atmospheric Nachgluehen visual identity.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Visible controls
 The editor SHALL present the MVP controls needed for Freeze, Drift, Dry/Wet, and Output Gain: a dedicated toggle for Freeze and equal-sized rotary controls for Drift, Dry/Wet, and Output Gain. Each rotary control SHALL use the same visual size and look-and-feel treatment; labels and status information SHALL NOT reduce the Output Gain rotary control's size.
@@ -35,21 +29,3 @@ The editor SHALL show a compact red `CLIP` indicator in an explicit visible boun
 #### Scenario: Safe output leaves CLIP inactive
 - **WHEN** the final plugin output remains below the clip-warning threshold for longer than the hold interval
 - **THEN** the `CLIP` indicator is inactive
-
-### Requirement: Atmospheric custom styling
-The editor SHALL use a cohesive custom visual treatment rather than an unmodified default JUCE appearance, with subdued dark tones and/or gradients, restrained glow or abstract texture, and sufficient contrast for readable controls. Visible plugin and title text SHALL use the ASCII spelling Nachgluehen.
-
-#### Scenario: Custom visual identity is present
-- **WHEN** the editor is rendered
-- **THEN** its background and controls visibly use the Nachgluehen atmospheric styling
-
-#### Scenario: Readability is preserved
-- **WHEN** atmospheric background elements are rendered behind the controls
-- **THEN** labels, values, and control states remain legible and distinguishable
-
-### Requirement: Fixed editor presentation
-The editor SHALL use a fixed MVP size and SHALL present the complete Nachgluehen control layout at that size. Responsive resizing and resize-specific layout behavior are outside the MVP.
-
-#### Scenario: Fixed editor opens
-- **WHEN** the host opens the plugin editor
-- **THEN** the editor uses its configured fixed dimensions and all knobs, labels, and the Freeze toggle are fully visible and usable

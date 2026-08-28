@@ -40,7 +40,7 @@ void NachgluehenAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const auto dryWet = parameters.getRawParameterValue(nachgluehen::parameterIds::dryWet)->load();
     engine.process(buffer, freeze, drift, dryWet);
 
-    const auto outputGainDb = juce::jlimit(muteOutputGainDb, 12.0f,
+    const auto outputGainDb = juce::jlimit(muteOutputGainDb, nachgluehen::outputGainMaximumDb,
         parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load());
     const auto targetGain = outputGainDb <= muteOutputGainDb + 0.05f
         ? 0.0f : juce::Decibels::decibelsToGain(outputGainDb);

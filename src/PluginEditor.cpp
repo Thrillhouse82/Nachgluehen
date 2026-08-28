@@ -116,12 +116,13 @@ void NachgluehenAudioProcessorEditor::resized()
     auto left = area.removeFromLeft(controlWidth).reduced(6);
     auto centre = area.removeFromLeft(controlWidth).reduced(6);
     auto right = area.reduced(6);
-    driftSlider.setBounds(left.removeFromTop(left.getHeight() - 30));
+    const auto sliderHeight = area.getHeight() - 48;
+    driftSlider.setBounds(left.removeFromTop(sliderHeight));
+    dryWetSlider.setBounds(centre.removeFromTop(sliderHeight));
+    outputGainSlider.setBounds(right.removeFromTop(sliderHeight));
     driftLabel.setBounds(left);
-    dryWetSlider.setBounds(centre.removeFromTop(centre.getHeight() - 30));
     dryWetLabel.setBounds(centre);
-    outputGainSlider.setBounds(right.removeFromTop(right.getHeight() - 48));
-    outputGainLabel.setBounds(right.removeFromTop(24));
+    outputGainLabel.setBounds(right.removeFromTop(22));
     clipLabel.setBounds(right.removeFromTop(20));
 }
 

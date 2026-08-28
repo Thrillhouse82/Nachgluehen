@@ -35,7 +35,7 @@ public:
     nachgluehen::LivingFreezeEngine engine;
 
 private:
-    static constexpr float muteOutputGainDb = -100.0f;
+    static constexpr float muteOutputGainDb = nachgluehen::outputGainMuteDb;
     static constexpr float clipThreshold = 0.9885531f; // -0.1 dBFS
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outputGain;
     int clipHoldDurationSamples = 1;

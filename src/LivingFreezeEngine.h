@@ -35,7 +35,7 @@ private:
     static constexpr double maxPlaybackDrift = 0.08;
     static constexpr double pitchSmoothingSeconds = 0.80;
     static constexpr double textureGainSmoothingSeconds = 0.01;
-    static constexpr double textureGainFloor = 0.12;
+    static constexpr double textureGainFloor = 0.14;
     static constexpr double textureGainCeiling = 0.60;
     static constexpr double textureEnergyVoiceScale = 0.35;
     static constexpr double pitchRandomWalkStep = 0.018;

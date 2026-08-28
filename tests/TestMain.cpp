@@ -26,6 +26,15 @@ public:
         expectWithinAbsoluteError(processor.parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load(), 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(outputGainParameter->getNormalisableRange().start, -100.0f, 1.0e-6f);
         expectWithinAbsoluteError(outputGainParameter->getNormalisableRange().end, 12.0f, 1.0e-6f);
+        const auto& outputGainRange = outputGainParameter->getNormalisableRange();
+        expectWithinAbsoluteError(outputGainRange.convertFrom0to1(0.0f), -100.0f, 1.0e-6f);
+        expectWithinAbsoluteError(outputGainRange.convertFrom0to1(0.5f), 0.0f, 1.0e-6f);
+        expectWithinAbsoluteError(outputGainRange.convertFrom0to1(1.0f), 12.0f, 1.0e-6f);
+        expectEquals(outputGainParameter->getText(0.0f, 8), juce::String("-inf"));
+        expectEquals(outputGainParameter->getText(0.5f, 8), juce::String("0.0"));
+        expectEquals(outputGainParameter->getText(1.0f, 8), juce::String("+12.0"));
+        for (const auto db : { -100.0f, -50.0f, -12.0f, -3.0f, 0.0f, 6.0f, 12.0f })
+            expectWithinAbsoluteError(outputGainRange.convertFrom0to1(outputGainRange.convertTo0to1(db)), db, 1.0e-5f);
         expectWithinAbsoluteError(driftParameter->getNormalisableRange().start, 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(driftParameter->getNormalisableRange().end, 1.0f, 1.0e-6f);
         expectEquals(driftParameter->getText(0.5f, 8), juce::String("50"));
@@ -83,6 +92,18 @@ public:
         }
         expectLessThan(maximumGainStep, 0.01f);
         expectWithinAbsoluteError(gainBuffer.getSample(0, 127), 0.25f * juce::Decibels::decibelsToGain(12.0f), 0.002f);
+
+        setOutputGain(6.0f);
+        for (int block = 0; block < 10; ++block)
+        {
+            for (int sample = 0; sample < gainBuffer.getNumSamples(); ++sample)
+            {
+                gainBuffer.setSample(0, sample, 0.25f);
+                gainBuffer.setSample(1, sample, -0.25f);
+            }
+            gainProcessor.processBlock(gainBuffer, noMidi);
+        }
+        expectWithinAbsoluteError(gainBuffer.getSample(0, 127), 0.25f * juce::Decibels::decibelsToGain(6.0f), 0.002f);
 
         setOutputGain(-100.0f);
         for (int block = 0; block < 10; ++block)
@@ -385,11 +406,11 @@ public:
                 energyRms += sample * sample;
                 energyPeak = juce::jmax(energyPeak, std::abs(sample));
             }
-            expect(energyEngine.getTextureGainCompensation() >= 0.12f - 1.0e-4f);
+            expect(energyEngine.getTextureGainCompensation() >= 0.14f - 1.0e-4f);
             expect(energyEngine.getTextureGainCompensation() <= 0.60f + 1.0e-4f);
         }
         energyRms = std::sqrt(energyRms / (360.0f * energyBuffer.getNumSamples()));
-        expectGreaterThan(energyRms, 0.03f);
+        expectGreaterThan(energyRms, 0.035f);
         expectLessThan(energyPeak, 1.25f);
 
         beginTest("Texture RMS and peak stay controlled across correlated and decorrelated drift");
