@@ -16,6 +16,7 @@ void LivingFreezeEngine::prepare(double sampleRate, int blockSize, int numChanne
     frozenRight.assign(static_cast<size_t>(ringCapacity), 0.0f);
     maxPositionDriftSamples = currentSampleRate * maxPositionDriftMilliseconds * 0.001;
     driftSmoothingCoefficient = 1.0 - std::exp(-1.0 / (currentSampleRate * 0.08));
+    pitchSmoothingCoefficient = 1.0 - std::exp(-1.0 / (currentSampleRate * pitchSmoothingSeconds));
     juce::ignoreUnused(numChannels);
     reset();
 }
@@ -90,6 +91,12 @@ float LivingFreezeEngine::windowValue(double phase) noexcept
     return juce::jmax(0.0f, static_cast<float>(std::sin(juce::MathConstants<double>::pi * phase)));
 }
 
+float LivingFreezeEngine::pitchDriftAmount(float normalizedDrift) noexcept
+{
+    const auto clampedDrift = juce::jlimit(0.0f, 1.0f, normalizedDrift);
+    return std::pow(clampedDrift, 2.5f);
+}
+
 void LivingFreezeEngine::updateVoiceSafety(TextureVoice& voice) noexcept
 {
     const auto length = static_cast<double>(juce::jmax(1, capturedLength));
@@ -155,6 +162,9 @@ void LivingFreezeEngine::restartVoice(TextureVoice& voice, int index) noexcept
 void LivingFreezeEngine::updateVoiceTargets() noexcept
 {
     driftTarget = driftValue;
+    const auto positionDriftAmount = static_cast<double>(driftValue);
+    const auto stereoDriftAmount = static_cast<double>(driftValue);
+    const auto pitchAmount = static_cast<double>(pitchDriftAmount(driftValue));
     if (driftValue <= 0.0f)
     {
         for (auto& voice : voices)
@@ -168,11 +178,11 @@ void LivingFreezeEngine::updateVoiceTargets() noexcept
 
     for (auto& voice : voices)
     {
-        voice.positionTarget = nextRandom() * maxPositionDriftSamples * static_cast<double>(driftValue);
+        voice.positionTarget = nextRandom() * maxPositionDriftSamples * positionDriftAmount;
         voice.speedTarget = juce::jlimit(1.0 - maxPlaybackDrift,
                                          1.0 + maxPlaybackDrift,
-                                         1.0 + nextRandom() * maxPlaybackDrift * static_cast<double>(driftValue));
-        voice.stereoTarget = nextRandom() * 0.15 * static_cast<double>(driftValue);
+                                         1.0 + nextRandom() * maxPlaybackDrift * pitchAmount);
+        voice.stereoTarget = nextRandom() * 0.15 * stereoDriftAmount;
 
         const auto stereoReserve = std::abs(voice.stereoTarget) * maxPositionDriftSamples;
         const auto minimumOffset = voice.safeReadMin + stereoReserve - voice.readPosition;
@@ -296,10 +306,10 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
                 auto& voice = voices[static_cast<size_t>(voiceIndex)];
                 if (!voice.active)
                     continue;
-                const auto smoothing = static_cast<double>(driftSmoothingCoefficient);
-                voice.positionOffset += (voice.positionTarget - voice.positionOffset) * smoothing;
-                voice.playbackSpeed += (voice.speedTarget - voice.playbackSpeed) * smoothing;
-                voice.stereoOffset += (voice.stereoTarget - voice.stereoOffset) * smoothing;
+                const auto movementSmoothing = static_cast<double>(driftSmoothingCoefficient);
+                voice.positionOffset += (voice.positionTarget - voice.positionOffset) * movementSmoothing;
+                voice.playbackSpeed += (voice.speedTarget - voice.playbackSpeed) * pitchSmoothingCoefficient;
+                voice.stereoOffset += (voice.stereoTarget - voice.stereoOffset) * movementSmoothing;
                 voice.playbackSpeed = juce::jlimit(1.0 - maxPlaybackDrift,
                                                    1.0 + maxPlaybackDrift,
                                                    voice.playbackSpeed);

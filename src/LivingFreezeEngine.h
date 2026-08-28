@@ -20,12 +20,14 @@ public:
     int getCapturedLength() const noexcept { return capturedLength; }
     bool hasCapture() const noexcept { return capturedLength > 0; }
     static float windowValue(double phase) noexcept;
+    static float pitchDriftAmount(float normalizedDrift) noexcept;
 
 private:
     static constexpr int textureVoiceCount = 8;
     static constexpr double captureDurationSeconds = 0.6;
     static constexpr double maxPositionDriftMilliseconds = 35.0;
     static constexpr double maxPlaybackDrift = 0.08;
+    static constexpr double pitchSmoothingSeconds = 0.30;
     static constexpr double minimumWindowFraction = 0.42;
     static constexpr double maximumWindowFraction = 0.58;
     static constexpr double voiceSpacingFraction = 1.0 / static_cast<double>(textureVoiceCount);
@@ -70,6 +72,7 @@ private:
     int capturedLength = 0;
     double maxPositionDriftSamples = 0.0;
     double driftSmoothingCoefficient = 1.0;
+    double pitchSmoothingCoefficient = 1.0;
     int transitionRemaining = 0;
     bool wasFrozen = false;
     float freezeGain = 0.0f;

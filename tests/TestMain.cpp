@@ -47,6 +47,46 @@ public:
         expectWithinAbsoluteError(buffer.getSample(0, 64), 0.25f, 1.0e-6f);
         expectWithinAbsoluteError(buffer.getSample(1, 64), -0.25f, 1.0e-6f);
 
+        beginTest("Pitch drift mapping is zero-ended and nonlinear");
+        expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.0f), 0.0f, 1.0e-6f);
+        expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::pitchDriftAmount(1.0f), 1.0f, 1.0e-6f);
+        const auto lowPitchAmount = nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.2f);
+        expect(lowPitchAmount < 0.2f * nachgluehen::LivingFreezeEngine::pitchDriftAmount(1.0f));
+        expect(nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.5f) > lowPitchAmount);
+
+        beginTest("Pitch drift changes remain finite and continuous");
+        nachgluehen::LivingFreezeEngine pitchTransitionEngine;
+        pitchTransitionEngine.prepare(48000.0, 256);
+        juce::AudioBuffer<float> pitchBuffer(2, 256);
+        for (int block = 0; block < 16; ++block)
+        {
+            for (int i = 0; i < pitchBuffer.getNumSamples(); ++i)
+            {
+                const auto value = std::sin((block * pitchBuffer.getNumSamples() + i) * 0.021f);
+                pitchBuffer.setSample(0, i, value);
+                pitchBuffer.setSample(1, i, value);
+            }
+            pitchTransitionEngine.process(pitchBuffer, false, 0.0f, 0.0f);
+        }
+        pitchBuffer.clear();
+        pitchTransitionEngine.process(pitchBuffer, true, 0.1f, 1.0f);
+        float previousPitchSample = pitchBuffer.getSample(0, pitchBuffer.getNumSamples() - 1);
+        float maximumPitchStep = 0.0f;
+        for (int block = 0; block < 80; ++block)
+        {
+            pitchBuffer.clear();
+            const auto driftValue = block < 8 ? 0.1f : 1.0f;
+            pitchTransitionEngine.process(pitchBuffer, true, driftValue, 1.0f);
+            for (int i = 0; i < pitchBuffer.getNumSamples(); ++i)
+            {
+                const auto value = pitchBuffer.getSample(0, i);
+                expect(std::isfinite(value));
+                maximumPitchStep = juce::jmax(maximumPitchStep, std::abs(value - previousPitchSample));
+                previousPitchSample = value;
+            }
+        }
+        expectLessThan(maximumPitchStep, 0.75f);
+
         beginTest("Capture uses a bounded window immediately before Freeze");
         nachgluehen::LivingFreezeEngine captureEngine;
         captureEngine.prepare(48000.0, 128);
