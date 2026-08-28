@@ -1,10 +1,4 @@
-# plugin-parameters-and-state Specification
-
-## Purpose
-
-This capability defines the stable host-facing parameter and project-state contract for automating Nachgluehen and restoring its visible settings predictably across project reloads.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Initial parameter contract
 The plugin SHALL expose Freeze as a boolean parameter defaulting to disabled, Drift as a continuous UI percentage parameter in the range 0-100% defaulting to 20%, Dry/Wet as a continuous UI percentage parameter in the range 0-100% defaulting to 50%, and Output Gain as a continuous dB parameter with a mute endpoint, a maximum of +12 dB, and a default of 0 dB. Drift values SHALL map linearly to the normalized processing range 0.0-1.0.

@@ -18,10 +18,14 @@ public:
         auto* freezeParameter = processor.parameters.getParameter(nachgluehen::parameterIds::freeze);
         auto* driftParameter = processor.parameters.getParameter(nachgluehen::parameterIds::drift);
         auto* dryWetParameter = processor.parameters.getParameter(nachgluehen::parameterIds::dryWet);
-        expect(freezeParameter != nullptr && driftParameter != nullptr && dryWetParameter != nullptr);
+        auto* outputGainParameter = processor.parameters.getParameter(nachgluehen::parameterIds::outputGain);
+        expect(freezeParameter != nullptr && driftParameter != nullptr && dryWetParameter != nullptr && outputGainParameter != nullptr);
         expectWithinAbsoluteError(freezeParameter->getDefaultValue(), 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(driftParameter->getDefaultValue(), 0.20f, 1.0e-6f);
         expectWithinAbsoluteError(dryWetParameter->getDefaultValue(), 0.50f, 1.0e-6f);
+        expectWithinAbsoluteError(processor.parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load(), 0.0f, 1.0e-6f);
+        expectWithinAbsoluteError(outputGainParameter->getNormalisableRange().start, -100.0f, 1.0e-6f);
+        expectWithinAbsoluteError(outputGainParameter->getNormalisableRange().end, 12.0f, 1.0e-6f);
         expectWithinAbsoluteError(driftParameter->getNormalisableRange().start, 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(driftParameter->getNormalisableRange().end, 1.0f, 1.0e-6f);
         expectEquals(driftParameter->getText(0.5f, 8), juce::String("50"));
@@ -29,6 +33,7 @@ public:
         processor.parameters.getParameter(nachgluehen::parameterIds::freeze)->setValueNotifyingHost(1.0f);
         processor.parameters.getParameter(nachgluehen::parameterIds::drift)->setValueNotifyingHost(0.73f);
         processor.parameters.getParameter(nachgluehen::parameterIds::dryWet)->setValueNotifyingHost(0.11f);
+        outputGainParameter->setValueNotifyingHost(outputGainParameter->getNormalisableRange().convertTo0to1(12.0f));
         juce::MemoryBlock state;
         processor.getStateInformation(state);
         NachgluehenAudioProcessor restored;
@@ -36,6 +41,94 @@ public:
         expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::drift)->load(), 0.73f, 0.002f);
         expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::dryWet)->load(), 0.11f, 0.002f);
         expect(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::freeze)->load() >= 0.5f);
+        expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load(), 12.0f, 0.11f);
+
+        beginTest("Output Gain handles host automation, staging, and finite output");
+        NachgluehenAudioProcessor gainProcessor;
+        gainProcessor.prepareToPlay(48000.0, 128);
+        auto* gainParameter = gainProcessor.parameters.getParameter(nachgluehen::parameterIds::outputGain);
+        const auto setOutputGain = [&gainParameter](float db)
+        {
+            gainParameter->setValueNotifyingHost(gainParameter->getNormalisableRange().convertTo0to1(db));
+        };
+        juce::MidiBuffer noMidi;
+        juce::AudioBuffer<float> gainBuffer(2, 128);
+        for (int channel = 0; channel < gainBuffer.getNumChannels(); ++channel)
+            gainBuffer.clear(channel, 0, gainBuffer.getNumSamples());
+        for (int sample = 0; sample < gainBuffer.getNumSamples(); ++sample)
+        {
+            gainBuffer.setSample(0, sample, 0.25f);
+            gainBuffer.setSample(1, sample, -0.25f);
+        }
+        gainProcessor.processBlock(gainBuffer, noMidi);
+        expectWithinAbsoluteError(gainBuffer.getSample(0, 64), 0.25f, 1.0e-6f);
+
+        setOutputGain(12.0f);
+        float previousGainSample = gainBuffer.getSample(0, 127);
+        float maximumGainStep = 0.0f;
+        for (int block = 0; block < 10; ++block)
+        {
+            for (int sample = 0; sample < gainBuffer.getNumSamples(); ++sample)
+            {
+                gainBuffer.setSample(0, sample, 0.25f);
+                gainBuffer.setSample(1, sample, -0.25f);
+            }
+            gainProcessor.processBlock(gainBuffer, noMidi);
+            for (int sample = 0; sample < gainBuffer.getNumSamples(); ++sample)
+            {
+                expect(std::isfinite(gainBuffer.getSample(0, sample)));
+                maximumGainStep = juce::jmax(maximumGainStep, std::abs(gainBuffer.getSample(0, sample) - previousGainSample));
+                previousGainSample = gainBuffer.getSample(0, sample);
+            }
+        }
+        expectLessThan(maximumGainStep, 0.01f);
+        expectWithinAbsoluteError(gainBuffer.getSample(0, 127), 0.25f * juce::Decibels::decibelsToGain(12.0f), 0.002f);
+
+        setOutputGain(-100.0f);
+        for (int block = 0; block < 10; ++block)
+        {
+            gainBuffer.applyGain(0.0f);
+            for (int sample = 0; sample < gainBuffer.getNumSamples(); ++sample)
+            {
+                gainBuffer.setSample(0, sample, 0.25f);
+                gainBuffer.setSample(1, sample, -0.25f);
+            }
+            gainProcessor.processBlock(gainBuffer, noMidi);
+        }
+        expectWithinAbsoluteError(gainBuffer.getSample(0, 127), 0.0f, 1.0e-6f);
+
+        beginTest("Post-gain clip hold uses the threshold and expires after one second");
+        NachgluehenAudioProcessor clipProcessor;
+        clipProcessor.prepareToPlay(48000.0, 128);
+        juce::AudioBuffer<float> clipBuffer(2, 128);
+        clipBuffer.clear();
+        for (int sample = 0; sample < clipBuffer.getNumSamples(); ++sample)
+        {
+            clipBuffer.setSample(0, sample, 0.98f);
+            clipBuffer.setSample(1, sample, -0.98f);
+        }
+        clipProcessor.processBlock(clipBuffer, noMidi);
+        expect(!clipProcessor.isClipHoldActive());
+        clipBuffer.clear();
+        for (int sample = 0; sample < clipBuffer.getNumSamples(); ++sample)
+            clipBuffer.setSample(0, sample, 0.99f);
+        clipProcessor.processBlock(clipBuffer, noMidi);
+        expect(clipProcessor.isClipHoldActive());
+        int remainingSafeSamples = 47999;
+        while (remainingSafeSamples > 0)
+        {
+            clipBuffer.clear();
+            const auto count = juce::jmin(remainingSafeSamples, clipBuffer.getNumSamples());
+            juce::AudioBuffer<float> shortBuffer(2, count);
+            shortBuffer.clear();
+            clipProcessor.processBlock(shortBuffer, noMidi);
+            remainingSafeSamples -= count;
+        }
+        expect(clipProcessor.isClipHoldActive());
+        juce::AudioBuffer<float> finalSafeSample(2, 1);
+        finalSafeSample.clear();
+        clipProcessor.processBlock(finalSafeSample, noMidi);
+        expect(!clipProcessor.isClipHoldActive());
 
         beginTest("Defaults and dry passthrough");
         nachgluehen::LivingFreezeEngine engine;

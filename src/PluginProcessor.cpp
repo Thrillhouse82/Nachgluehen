@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <cmath>
+
 NachgluehenAudioProcessor::NachgluehenAudioProcessor()
     : AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true)
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
@@ -11,6 +13,10 @@ NachgluehenAudioProcessor::NachgluehenAudioProcessor()
 void NachgluehenAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     engine.prepare(sampleRate, samplesPerBlock, 2);
+    outputGain.reset(sampleRate, 0.02);
+    outputGain.setCurrentAndTargetValue(1.0f);
+    clipHoldDurationSamples = juce::jmax(1, static_cast<int>(std::ceil(sampleRate)));
+    clipHoldSamplesRemaining.store(0, std::memory_order_relaxed);
 }
 
 void NachgluehenAudioProcessor::releaseResources()
@@ -33,6 +39,33 @@ void NachgluehenAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const auto drift = parameters.getRawParameterValue(nachgluehen::parameterIds::drift)->load();
     const auto dryWet = parameters.getRawParameterValue(nachgluehen::parameterIds::dryWet)->load();
     engine.process(buffer, freeze, drift, dryWet);
+
+    const auto outputGainDb = juce::jlimit(muteOutputGainDb, 12.0f,
+        parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load());
+    const auto targetGain = outputGainDb <= muteOutputGainDb + 0.05f
+        ? 0.0f : juce::Decibels::decibelsToGain(outputGainDb);
+    outputGain.setTargetValue(std::isfinite(targetGain) ? targetGain : 0.0f);
+
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        const auto gain = outputGain.getNextValue();
+        bool clipped = false;
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        {
+            const auto output = buffer.getSample(channel, sample) * gain;
+            const auto safeOutput = std::isfinite(output) ? output : 0.0f;
+            buffer.setSample(channel, sample, safeOutput);
+            clipped = clipped || std::abs(safeOutput) >= clipThreshold;
+        }
+        if (clipped)
+            clipHoldSamplesRemaining.store(clipHoldDurationSamples, std::memory_order_relaxed);
+        else
+        {
+            const auto remaining = clipHoldSamplesRemaining.load(std::memory_order_relaxed);
+            if (remaining > 0)
+                clipHoldSamplesRemaining.store(remaining - 1, std::memory_order_relaxed);
+        }
+    }
 }
 
 void NachgluehenAudioProcessor::getStateInformation(juce::MemoryBlock& destination)

@@ -3,6 +3,7 @@
 #include "LivingFreezeEngine.h"
 #include "Parameters.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <atomic>
 
 class NachgluehenAudioProcessor final : public juce::AudioProcessor
 {
@@ -28,11 +29,17 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
+    bool isClipHoldActive() const noexcept { return clipHoldSamplesRemaining.load(std::memory_order_relaxed) > 0; }
 
     juce::AudioProcessorValueTreeState parameters;
     nachgluehen::LivingFreezeEngine engine;
 
 private:
+    static constexpr float muteOutputGainDb = -100.0f;
+    static constexpr float clipThreshold = 0.9885531f; // -0.1 dBFS
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outputGain;
+    int clipHoldDurationSamples = 1;
+    std::atomic<int> clipHoldSamplesRemaining { 0 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NachgluehenAudioProcessor)
 };
 
