@@ -22,12 +22,23 @@ public:
     static float windowValue(double phase) noexcept;
     static float pitchDriftAmount(float normalizedDrift) noexcept;
 
+    // Read-only diagnostics used by deterministic DSP regression tests.
+    float getVoicePlaybackSpeed(int index) const noexcept;
+    float getVoiceSpeedTarget(int index) const noexcept;
+    float getVoicePosition(int index) const noexcept;
+    float getTextureGainCompensation() const noexcept { return textureGainCompensation; }
+
 private:
     static constexpr int textureVoiceCount = 8;
     static constexpr double captureDurationSeconds = 0.6;
     static constexpr double maxPositionDriftMilliseconds = 35.0;
     static constexpr double maxPlaybackDrift = 0.08;
-    static constexpr double pitchSmoothingSeconds = 0.30;
+    static constexpr double pitchSmoothingSeconds = 0.80;
+    static constexpr double textureGainSmoothingSeconds = 0.01;
+    static constexpr double textureGainFloor = 0.12;
+    static constexpr double textureGainCeiling = 0.60;
+    static constexpr double textureEnergyVoiceScale = 0.35;
+    static constexpr double pitchRandomWalkStep = 0.018;
     static constexpr double minimumWindowFraction = 0.42;
     static constexpr double maximumWindowFraction = 0.58;
     static constexpr double voiceSpacingFraction = 1.0 / static_cast<double>(textureVoiceCount);
@@ -61,6 +72,7 @@ private:
     void initializeVoice(TextureVoice& voice, int index) noexcept;
     void restartVoice(TextureVoice& voice, int index) noexcept;
     void updateVoiceSafety(TextureVoice& voice) noexcept;
+    void constrainVoiceTargets(TextureVoice& voice) noexcept;
     void updateVoiceTargets() noexcept;
     float renderTexture(int channel) noexcept;
 

@@ -68,7 +68,7 @@ When Freeze is enabled, the processor SHALL use at least two simultaneously acti
 - **THEN** the output remains recognizably derived from that tone or chord while reducing the clear short-loop character
 
 ### Requirement: Click-free transitions and boundaries
-The processor SHALL smooth Freeze activation, Freeze deactivation, internal playback-boundary transitions, read-position changes, and Drift-induced movement so that normal operation does not expose abrupt sample discontinuities. Capture-window start and end SHALL be joined using crossfading, overlapping windows, or an equivalent continuous-boundary method. A voice read position SHALL only be changed or restarted when that voice's audible envelope gain is at or near zero. Playback-Speed changes SHALL use a dedicated slower smoothing response than position and stereo movement, with a nominal design target in the range of 200-500 ms, so that speed targets are approached continuously rather than stepped.
+The processor SHALL smooth Freeze activation, Freeze deactivation, internal playback-boundary transitions, read-position changes, and Drift-induced movement so that normal operation does not expose abrupt sample discontinuities. Capture-window start and end SHALL be joined using crossfading, overlapping windows, or an equivalent continuous-boundary method. A voice read position SHALL only be changed or restarted when that voice's audible envelope gain is at or near zero. Playback-Speed changes SHALL use a dedicated slower smoothing response than position and stereo movement, with a nominal design target in the range of 200-500 ms, so that speed targets are approached continuously rather than stepped. Changes to Drift-dependent position limits SHALL also be applied continuously while a voice is audible.
 
 #### Scenario: Freeze activation is smoothed
 - **WHEN** Freeze changes from disabled to enabled during ordinary audio playback
@@ -93,6 +93,10 @@ The processor SHALL smooth Freeze activation, Freeze deactivation, internal play
 #### Scenario: Drift changes do not cause an immediate pitch jump
 - **WHEN** the visible Drift value changes substantially while Freeze remains enabled
 - **THEN** the allowed playback-speed range and the current playback speed evolve continuously toward their new values without an abrupt pitch transition
+
+#### Scenario: Drift changes do not cause an immediate read-position jump
+- **WHEN** the visible Drift value changes substantially while a texture voice is audible
+- **THEN** any changed position or stereo safety limit is approached continuously and does not instantly relocate the audible read position
 
 ### Requirement: Non-periodic living Drift
 The processor SHALL apply smoothed, bounded, non-periodic, slowly varying Drift according to separate internal position, stereo, and pitch intensities derived from the normalized Drift value. Position and stereo movement SHALL be allowed to respond at low Drift values, while pitch-related playback-speed movement SHALL use a nonlinear mapping whose lower range is substantially flatter than linear. Drift SHALL not be implemented as only a simple cyclic sinusoidal LFO and SHALL NOT move an active voice outside its safe continuous read region. Each voice MAY use an independent pitch target, but voice-to-voice pitch differences SHALL remain small at low and medium Drift values and MAY increase at high Drift values.
@@ -126,7 +130,7 @@ The processor SHALL apply smoothed, bounded, non-periodic, slowly varying Drift 
 - **THEN** all affected playback properties remain within safe bounds, modulation changes remain continuous, and the output remains finite
 
 ### Requirement: Stable texture gain mixing
-The processor SHALL mix active voice contributions using their actual non-negative window envelope gains and a stable gain strategy that avoids abrupt samplewise compensation. Gain compensation SHALL reduce level variation caused by expected voice overlap without dividing by the instantaneous sum of active envelopes in a way that restores a faded single voice to constant amplitude.
+The processor SHALL mix active voice contributions using their actual non-negative window envelope gains and an energy-aware stable gain strategy that avoids unnecessary attenuation of decorrelated voices. Gain compensation SHALL change slowly enough to avoid abrupt samplewise gain jumps or audible pumping at expected voice overlap and restart points. The resulting freeze texture SHALL remain within a controlled level range relative to the captured source and SHALL not rely on instantaneous envelope-sum division as its only loudness model.
 
 #### Scenario: Window gain remains audible
 - **WHEN** one voice is active and its window moves from start through midpoint to end
@@ -139,6 +143,14 @@ The processor SHALL mix active voice contributions using their actual non-negati
 #### Scenario: Voice overlap changes smoothly
 - **WHEN** the number or envelope gains of contributing voices changes during normal texture playback
 - **THEN** the compensated texture level changes without a large abrupt output jump and without introducing a new audible modulation artifact
+
+#### Scenario: Decorrelated voices retain controlled loudness
+- **WHEN** multiple voices play the same captured material with small independent position, stereo, or pitch differences
+- **THEN** the sustained texture RMS level remains close to the captured material's controlled reference level and does not become substantially quieter solely because the voices are decorrelated
+
+#### Scenario: Gain compensation remains bounded
+- **WHEN** voice envelopes move through repeated overlap and restart cycles at any supported Drift value
+- **THEN** gain compensation remains finite and within defined safety limits without clipping or runaway amplification
 
 ### Requirement: Dry/Wet mixing
 The processor SHALL mix the current live input and living-freeze signal according to Dry/Wet, with 0% fully dry and 100% fully wet, and SHALL smooth mix changes sufficiently to prevent unintended level jumps.
