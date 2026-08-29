@@ -14,6 +14,7 @@ void LivingFreezeEngine::prepare(double sampleRate, int blockSize, int numChanne
     recentRight.assign(static_cast<size_t>(ringCapacity), 0.0f);
     frozenLeft.assign(static_cast<size_t>(ringCapacity), 0.0f);
     frozenRight.assign(static_cast<size_t>(ringCapacity), 0.0f);
+    frozenTransient.assign(static_cast<size_t>(ringCapacity), 0.0f);
     maxPositionDriftSamples = currentSampleRate * maxPositionDriftMilliseconds * 0.001;
     driftSmoothingCoefficient = 1.0 - std::exp(-1.0 / (currentSampleRate * 0.08));
     pitchSmoothingCoefficient = 1.0 - std::exp(-1.0 / (currentSampleRate * pitchSmoothingSeconds));
@@ -27,11 +28,15 @@ void LivingFreezeEngine::reset()
     std::fill(recentRight.begin(), recentRight.end(), 0.0f);
     std::fill(frozenLeft.begin(), frozenLeft.end(), 0.0f);
     std::fill(frozenRight.begin(), frozenRight.end(), 0.0f);
+    std::fill(frozenTransient.begin(), frozenTransient.end(), 0.0f);
     ringWrite = recentSamples = capturedLength = 0;
     transitionRemaining = 0;
     wasFrozen = false;
     freezeGain = 0.0f;
     textureGainCompensation = static_cast<float>(textureGainFloor);
+    smoothValue = smoothCurrent = 0.0f;
+    transientEnvelope = {};
+    transientGain = { { 1.0f, 1.0f } };
     dryWetCurrent = 0.5f;
     driftCurrent = driftTarget = 0.0f;
     safetyDriftValue = 0.0f;
@@ -80,15 +85,43 @@ void LivingFreezeEngine::captureRecent()
         frozenLeft[static_cast<size_t>(i)] = recentLeft[static_cast<size_t>(sourceIndex)];
         frozenRight[static_cast<size_t>(i)] = recentRight[static_cast<size_t>(sourceIndex)];
     }
+    // Preserve a short, decaying marker for attack-rich capture regions. This
+    // lets Smooth reduce the musical source transient before overlapping voices
+    // sum it, instead of trying to infer it from the already-dense wet mix.
+    auto previousLeft = 0.0f;
+    auto previousRight = 0.0f;
+    auto previousMagnitude = 0.0f;
+    auto slowMagnitude = 0.0f;
+    auto transientHold = 0.0f;
+    const auto transientDecay = static_cast<float>(std::exp(-1.0 / (currentSampleRate * 0.090)));
+    for (int i = 0; i < capturedLength; ++i)
+    {
+        const auto left = frozenLeft[static_cast<size_t>(i)];
+        const auto right = frozenRight[static_cast<size_t>(i)];
+        const auto change = juce::jmax(std::abs(left - previousLeft), std::abs(right - previousRight));
+        const auto magnitude = juce::jmax(std::abs(left), std::abs(right));
+        slowMagnitude += (magnitude - slowMagnitude) * 0.0005f;
+        const auto relativeRise = juce::jmax(0.0f, magnitude - previousMagnitude) / (0.01f + slowMagnitude);
+        const auto slopeOnset = juce::jlimit(0.0f, 1.0f, (relativeRise - 0.08f) * 4.0f);
+        const auto spikeOnset = juce::jlimit(0.0f, 1.0f, (change - 0.008f) * 20.0f);
+        const auto detected = juce::jmax(slopeOnset, spikeOnset);
+        transientHold = juce::jmax(detected, transientHold * transientDecay);
+        frozenTransient[static_cast<size_t>(i)] = transientHold;
+        previousLeft = left;
+        previousRight = right;
+        previousMagnitude = magnitude;
+    }
     for (int i = 0; i < textureVoiceCount; ++i)
         initializeVoice(voices[static_cast<size_t>(i)], i);
     safetyDriftValue = driftValue;
 }
 
-float LivingFreezeEngine::windowValue(double phase) noexcept
+float LivingFreezeEngine::windowValue(double phase, float smooth) noexcept
 {
     phase = juce::jlimit(0.0, 1.0, phase);
-    return juce::jmax(0.0f, static_cast<float>(std::sin(juce::MathConstants<double>::pi * phase)));
+    const auto sine = juce::jmax(0.0f, static_cast<float>(std::sin(juce::MathConstants<double>::pi * phase)));
+    const auto shape = 1.0f + 2.0f * juce::jlimit(0.0f, 1.0f, smooth);
+    return std::pow(sine, shape);
 }
 
 float LivingFreezeEngine::pitchDriftAmount(float normalizedDrift) noexcept
@@ -232,11 +265,13 @@ float LivingFreezeEngine::renderTexture(int channel) noexcept
         if (!voice.active)
             continue;
 
-        const auto envelope = static_cast<double>(windowValue(voice.windowPhase));
+        const auto envelope = static_cast<double>(windowValue(voice.windowPhase, smoothCurrent));
         const auto stereoPosition = channel == 0 ? -voice.stereoOffset : voice.stereoOffset;
         const auto rawPosition = voice.readPosition + voice.positionOffset + stereoPosition * maxPositionDriftSamples;
         const auto position = juce::jlimit(voice.safeReadMin, voice.safeReadMax, rawPosition);
-        output += static_cast<double>(readLinear(source, capturedLength, position)) * envelope;
+        const auto capturedTransient = readLinear(frozenTransient, capturedLength, position);
+        const auto sourceGain = 1.0f - 0.98f * smoothCurrent * capturedTransient;
+        output += static_cast<double>(readLinear(source, capturedLength, position) * sourceGain) * envelope;
         envelopeEnergy += envelope * envelope;
     }
     if (channel == 0)
@@ -246,18 +281,31 @@ float LivingFreezeEngine::renderTexture(int channel) noexcept
         const auto correlationCompensation = 1.0 / juce::jmax(1.0, std::sqrt(envelopeEnergy) * 2.0);
         const auto targetCompensation = juce::jlimit(textureGainFloor, textureGainCeiling,
             0.5 * (energyCompensation + correlationCompensation));
-        const auto smoothing = 1.0 - std::exp(-1.0 / (currentSampleRate * textureGainSmoothingSeconds));
+        const auto gainSmoothingSeconds = textureGainSmoothingSeconds
+            + 0.24 * static_cast<double>(smoothCurrent * smoothCurrent);
+        const auto smoothing = 1.0 - std::exp(-1.0 / (currentSampleRate * gainSmoothingSeconds));
         textureGainCompensation += static_cast<float>((targetCompensation - textureGainCompensation) * smoothing);
     }
-    return static_cast<float>(output * static_cast<double>(textureGainCompensation));
+    auto wetSample = static_cast<float>(output * static_cast<double>(textureGainCompensation));
+    const auto channelIndex = channel == 0 ? 0 : 1;
+    const auto magnitude = std::abs(wetSample);
+    const auto envelopeCoefficient = magnitude > transientEnvelope[static_cast<size_t>(channelIndex)]
+        ? 0.02f : 0.0003f;
+    transientEnvelope[static_cast<size_t>(channelIndex)] += (magnitude - transientEnvelope[static_cast<size_t>(channelIndex)]) * envelopeCoefficient;
+    const auto attack = juce::jmax(0.0f, magnitude - transientEnvelope[static_cast<size_t>(channelIndex)]);
+    const auto targetTransientGain = 1.0f / (1.0f + 8.0f * smoothCurrent * attack);
+    const auto gainCoefficient = targetTransientGain < transientGain[static_cast<size_t>(channelIndex)] ? 0.40f : 0.001f;
+    transientGain[static_cast<size_t>(channelIndex)] += (targetTransientGain - transientGain[static_cast<size_t>(channelIndex)]) * gainCoefficient;
+    return wetSample * transientGain[static_cast<size_t>(channelIndex)];
 }
 
-void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, float drift, float dryWet)
+void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, float drift, float dryWet, float smooth)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin(2, buffer.getNumChannels());
     driftValue = juce::jlimit(0.0f, 1.0f, drift);
     dryWetValue = juce::jlimit(0.0f, 1.0f, dryWet);
+    smoothValue = juce::jlimit(0.0f, 1.0f, smooth);
 
     if (freeze && capturedLength > 0 && driftValue != safetyDriftValue)
     {
@@ -309,6 +357,8 @@ void LivingFreezeEngine::process(juce::AudioBuffer<float>& buffer, bool freeze, 
         freezeGain = juce::jlimit(0.0f, 1.0f, freezeGain);
         dryWetCurrent += (dryWetValue - dryWetCurrent) / static_cast<float>(transitionSamples);
         dryWetCurrent = juce::jlimit(0.0f, 1.0f, dryWetCurrent);
+        const auto smoothCoefficient = 1.0f - std::exp(-1.0f / static_cast<float>(currentSampleRate * 0.05));
+        smoothCurrent += (smoothValue - smoothCurrent) * smoothCoefficient;
 
         if (driftValue > 0.0f && --driftUpdateCountdown <= 0)
         {

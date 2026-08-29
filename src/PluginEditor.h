@@ -25,9 +25,9 @@ private:
     NachgluehenAudioProcessor& processor;
     NachgluehenLookAndFeel lookAndFeel;
     juce::ToggleButton freezeButton;
-    juce::Slider driftSlider, dryWetSlider, outputGainSlider;
-    juce::Label title, driftLabel, dryWetLabel, outputGainLabel, clipLabel;
+    juce::Slider driftSlider, smoothSlider, dryWetSlider, outputGainSlider;
+    juce::Label title, driftLabel, smoothLabel, dryWetLabel, outputGainLabel, clipLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> freezeAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driftAttachment, dryWetAttachment, outputGainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driftAttachment, smoothAttachment, dryWetAttachment, outputGainAttachment;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NachgluehenAudioProcessorEditor)
 };

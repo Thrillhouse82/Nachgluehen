@@ -58,17 +58,22 @@ NachgluehenAudioProcessorEditor::NachgluehenAudioProcessorEditor(NachgluehenAudi
     addAndMakeVisible(title);
     freezeButton.setClickingTogglesState(true);
     addAndMakeVisible(freezeButton);
-    for (auto* slider : { &driftSlider, &dryWetSlider, &outputGainSlider })
+    for (auto* slider : { &driftSlider, &smoothSlider, &dryWetSlider, &outputGainSlider })
     {
         slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
         slider->setTextValueSuffix({});
         addAndMakeVisible(*slider);
     }
+    driftSlider.setComponentID("drift-control");
+    smoothSlider.setComponentID("smooth-control");
+    dryWetSlider.setComponentID("dry-wet-control");
+    outputGainSlider.setComponentID("output-gain-control");
     driftLabel.setText("DRIFT", juce::dontSendNotification);
+    smoothLabel.setText("SMOOTH", juce::dontSendNotification);
     dryWetLabel.setText("DRY / WET", juce::dontSendNotification);
     outputGainLabel.setText("OUTPUT", juce::dontSendNotification);
-    for (auto* label : { &driftLabel, &dryWetLabel, &outputGainLabel })
+    for (auto* label : { &driftLabel, &smoothLabel, &dryWetLabel, &outputGainLabel })
     {
         label->setJustificationType(juce::Justification::centred);
         label->setColour(juce::Label::textColourId, juce::Colour(0xffd9c5b5));
@@ -83,6 +88,7 @@ NachgluehenAudioProcessorEditor::NachgluehenAudioProcessorEditor(NachgluehenAudi
     addAndMakeVisible(clipLabel);
     freezeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor.parameters, nachgluehen::parameterIds::freeze, freezeButton);
     driftAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters, nachgluehen::parameterIds::drift, driftSlider);
+    smoothAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters, nachgluehen::parameterIds::smooth, smoothSlider);
     dryWetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters, nachgluehen::parameterIds::dryWet, dryWetSlider);
     outputGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters, nachgluehen::parameterIds::outputGain, outputGainSlider);
     startTimerHz(30);
@@ -112,16 +118,19 @@ void NachgluehenAudioProcessorEditor::resized()
     title.setBounds(area.removeFromTop(42));
     freezeButton.setBounds(area.removeFromTop(38).withSizeKeepingCentre(150, 34));
     area.removeFromTop(18);
-    const auto controlWidth = area.getWidth() / 3;
+    const auto controlWidth = area.getWidth() / 4;
     auto left = area.removeFromLeft(controlWidth).reduced(6);
-    auto centre = area.removeFromLeft(controlWidth).reduced(6);
+    auto leftCentre = area.removeFromLeft(controlWidth).reduced(6);
+    auto rightCentre = area.removeFromLeft(controlWidth).reduced(6);
     auto right = area.reduced(6);
     const auto sliderHeight = area.getHeight() - 48;
     driftSlider.setBounds(left.removeFromTop(sliderHeight));
-    dryWetSlider.setBounds(centre.removeFromTop(sliderHeight));
+    smoothSlider.setBounds(leftCentre.removeFromTop(sliderHeight));
+    dryWetSlider.setBounds(rightCentre.removeFromTop(sliderHeight));
     outputGainSlider.setBounds(right.removeFromTop(sliderHeight));
     driftLabel.setBounds(left);
-    dryWetLabel.setBounds(centre);
+    smoothLabel.setBounds(leftCentre);
+    dryWetLabel.setBounds(rightCentre);
     outputGainLabel.setBounds(right.removeFromTop(22));
     clipLabel.setBounds(right.removeFromTop(20));
 }

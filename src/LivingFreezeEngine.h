@@ -15,11 +15,11 @@ public:
     void prepare(double sampleRate, int maximumBlockSize, int numChannels = 2);
     void reset();
     void setSeed(std::uint32_t seed) noexcept;
-    void process(juce::AudioBuffer<float>& buffer, bool freeze, float drift, float dryWet);
+    void process(juce::AudioBuffer<float>& buffer, bool freeze, float drift, float dryWet, float smooth = 0.0f);
 
     int getCapturedLength() const noexcept { return capturedLength; }
     bool hasCapture() const noexcept { return capturedLength > 0; }
-    static float windowValue(double phase) noexcept;
+    static float windowValue(double phase, float smooth = 0.0f) noexcept;
     static float pitchDriftAmount(float normalizedDrift) noexcept;
 
     // Read-only diagnostics used by deterministic DSP regression tests.
@@ -89,6 +89,10 @@ private:
     bool wasFrozen = false;
     float freezeGain = 0.0f;
     float textureGainCompensation = 1.0f;
+    float smoothValue = 0.0f;
+    float smoothCurrent = 0.0f;
+    std::array<float, 2> transientEnvelope{};
+    std::array<float, 2> transientGain{ { 1.0f, 1.0f } };
     float dryWetCurrent = 0.5f;
     float dryWetValue = 0.5f;
     float driftValue = 0.2f;
@@ -98,6 +102,6 @@ private:
     int driftUpdateCountdown = driftUpdateSamples;
     std::uint32_t randomState = 0x4e616368u;
     std::array<TextureVoice, textureVoiceCount> voices{};
-    std::vector<float> recentLeft, recentRight, frozenLeft, frozenRight;
+    std::vector<float> recentLeft, recentRight, frozenLeft, frozenRight, frozenTransient;
 };
 }
