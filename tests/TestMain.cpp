@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -196,6 +197,30 @@ public:
         const auto lowPitchAmount = nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.2f);
         expect(lowPitchAmount < 0.2f * nachgluehen::LivingFreezeEngine::pitchDriftAmount(1.0f));
         expect(nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.5f) > lowPitchAmount);
+        expectGreaterThan(nachgluehen::LivingFreezeEngine::pitchDriftAmount(0.5f), 0.20f);
+
+        beginTest("Mid Drift has measurable strengthened pitch and position response");
+        nachgluehen::LivingFreezeEngine midDriftEngine;
+        midDriftEngine.prepare(1000.0, 64);
+        midDriftEngine.setSeed(9876);
+        juce::AudioBuffer<float> midDriftBuffer(2, 64);
+        for (int block = 0; block < 12; ++block)
+        {
+            for (int sample = 0; sample < 64; ++sample)
+            {
+                const auto value = std::sin((block * 64 + sample) * 0.023f);
+                midDriftBuffer.setSample(0, sample, value);
+                midDriftBuffer.setSample(1, sample, value);
+            }
+            midDriftEngine.process(midDriftBuffer, false, 0.0f, 0.0f);
+        }
+        midDriftBuffer.clear();
+        midDriftEngine.process(midDriftBuffer, true, 0.5f, 1.0f);
+        float largestMidPositionTarget = 0.0f;
+        for (int index = 0; index < 8; ++index)
+            largestMidPositionTarget = juce::jmax(largestMidPositionTarget,
+                                                  std::abs(midDriftEngine.getVoicePositionTarget(index)));
+        expectGreaterThan(largestMidPositionTarget, 5.0f);
 
         beginTest("Pitch drift changes remain finite and continuous");
         nachgluehen::LivingFreezeEngine pitchTransitionEngine;
@@ -475,7 +500,7 @@ public:
             }
             const auto rms = std::sqrt(rmsSum / (180.0 * levelBuffer.getNumSamples()));
             expectGreaterThan(static_cast<float>(rms), 0.03f);
-            expectLessThan(peak, 1.25f);
+            expectLessThan(peak, 1.35f);
         }
 
         beginTest("Bounded random-walk targets and speed glides stay continuous");
@@ -539,8 +564,8 @@ public:
                 const auto speed = coherenceEngine.getVoicePlaybackSpeed(index);
                 const auto factor = coherenceEngine.getVoicePitchFactor(index);
                 expect(std::isfinite(speed) && std::isfinite(factor));
-                expectLessThan(std::abs(factor - 1.0f), 0.004f);
-                expectLessThan(std::abs(speed / globalSpeed - 1.0f), 0.004f);
+                expectLessThan(std::abs(factor - 1.0f), 0.005f);
+                expectLessThan(std::abs(speed / globalSpeed - 1.0f), 0.005f);
                 expectLessThan(std::abs(speed - previousVoiceSpeeds[static_cast<size_t>(index)]), 0.01f);
                 previousVoiceSpeeds[static_cast<size_t>(index)] = speed;
             }
@@ -558,8 +583,114 @@ public:
                 expectWithinAbsoluteError(coherenceEngine.getVoicePlaybackSpeed(index), 1.0f, 1.0e-6f);
                 expectWithinAbsoluteError(coherenceEngine.getVoicePitchFactor(index), 1.0f, 1.0e-6f);
                 expectWithinAbsoluteError(coherenceEngine.getVoiceSpeedTarget(index), 1.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoicePositionOffset(index), 0.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoicePositionTarget(index), 0.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoiceStereoOffset(index), 0.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoiceStereoTarget(index), 0.0f, 1.0e-6f);
             }
         }
+
+        beginTest("Maximum Drift targets stay within the strengthened pitch and position bounds");
+        nachgluehen::LivingFreezeEngine boundedDriftEngine;
+        boundedDriftEngine.prepare(1000.0, 64);
+        boundedDriftEngine.setSeed(31415);
+        juce::AudioBuffer<float> boundedDriftBuffer(2, 64);
+        for (int block = 0; block < 12; ++block)
+        {
+            for (int sample = 0; sample < 64; ++sample)
+            {
+                const auto value = std::sin((block * 64 + sample) * 0.041f);
+                boundedDriftBuffer.setSample(0, sample, value);
+                boundedDriftBuffer.setSample(1, sample, value);
+            }
+            boundedDriftEngine.process(boundedDriftBuffer, false, 0.0f, 0.0f);
+        }
+        for (int block = 0; block < 120; ++block)
+        {
+            boundedDriftBuffer.clear();
+            boundedDriftEngine.process(boundedDriftBuffer, true, 1.0f, 1.0f);
+            expectLessThan(std::abs(boundedDriftEngine.getGlobalPlaybackSpeedTarget() - 1.0f), 0.0551f);
+            expectLessThan(std::abs(boundedDriftEngine.getGlobalPlaybackSpeed() - 1.0f), 0.0551f);
+            for (int index = 0; index < 8; ++index)
+            {
+                expectLessThan(std::abs(boundedDriftEngine.getVoicePitchFactor(index) - 1.0f), 0.0046f);
+                expectLessThan(std::abs(boundedDriftEngine.getVoiceSpeedTarget(index)
+                                        / boundedDriftEngine.getGlobalPlaybackSpeedTarget() - 1.0f), 0.0046f);
+                expectLessThan(std::abs(boundedDriftEngine.getVoicePositionTarget(index)), 55.1f);
+                expect(boundedDriftEngine.getVoicePosition(index) >= boundedDriftEngine.getVoiceSafeReadMin(index));
+                expect(boundedDriftEngine.getVoicePosition(index) <= boundedDriftEngine.getVoiceSafeReadMax(index));
+            }
+        }
+
+        beginTest("Pitch targets glide instead of immediately changing playback speed");
+        nachgluehen::LivingFreezeEngine pitchGlideEngine;
+        pitchGlideEngine.prepare(1000.0, 1);
+        pitchGlideEngine.setSeed(2718);
+        juce::AudioBuffer<float> pitchGlideBuffer(2, 1);
+        for (int sample = 0; sample < 640; ++sample)
+        {
+            const auto value = std::sin(sample * 0.037f);
+            pitchGlideBuffer.setSample(0, 0, value);
+            pitchGlideBuffer.setSample(1, 0, value);
+            pitchGlideEngine.process(pitchGlideBuffer, false, 0.0f, 0.0f);
+        }
+        pitchGlideBuffer.clear();
+        pitchGlideEngine.process(pitchGlideBuffer, true, 1.0f, 1.0f);
+        const auto firstGlideSpeed = pitchGlideEngine.getGlobalPlaybackSpeed();
+        const auto firstGlideTarget = pitchGlideEngine.getGlobalPlaybackSpeedTarget();
+        expectGreaterThan(std::abs(firstGlideTarget - 1.0f), 1.0e-5f);
+        expectLessThan(std::abs(firstGlideSpeed - 1.0f), std::abs(firstGlideTarget - 1.0f));
+        expectGreaterThan(std::abs(firstGlideTarget - firstGlideSpeed), 1.0e-5f);
+
+        beginTest("Long renders remain finite, safe, continuous, and level-stable across Drift");
+        std::array<double, 5> driftRms{};
+        const std::array<float, 5> driftValues { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+        for (size_t driftIndex = 0; driftIndex < driftValues.size(); ++driftIndex)
+        {
+            nachgluehen::LivingFreezeEngine renderEngine;
+            renderEngine.prepare(48000.0, 256);
+            renderEngine.setSeed(100 + static_cast<std::uint32_t>(driftIndex));
+            juce::AudioBuffer<float> renderBuffer(2, 256);
+            for (int block = 0; block < 40; ++block)
+            {
+                for (int sample = 0; sample < renderBuffer.getNumSamples(); ++sample)
+                {
+                    const auto phase = static_cast<float>(block * renderBuffer.getNumSamples() + sample);
+                    const auto value = std::sin(phase * 0.037f) + 0.18f * std::sin(phase * 0.013f);
+                    renderBuffer.setSample(0, sample, value);
+                    renderBuffer.setSample(1, sample, value);
+                }
+                renderEngine.process(renderBuffer, false, 0.0f, 0.0f);
+            }
+            double energy = 0.0;
+            float previousSample = 0.0f;
+            float maximumStep = 0.0f;
+            for (int block = 0; block < 240; ++block)
+            {
+                renderBuffer.clear();
+                renderEngine.process(renderBuffer, true, driftValues[driftIndex], 1.0f);
+                for (int sample = 0; sample < renderBuffer.getNumSamples(); ++sample)
+                {
+                    const auto value = renderBuffer.getSample(0, sample);
+                    expect(std::isfinite(value));
+                    energy += value * value;
+                    maximumStep = juce::jmax(maximumStep, std::abs(value - previousSample));
+                    previousSample = value;
+                }
+                for (int voice = 0; voice < 8; ++voice)
+                {
+                    expect(std::isfinite(renderEngine.getVoicePlaybackSpeed(voice)));
+                    expect(std::isfinite(renderEngine.getVoicePosition(voice)));
+                    expect(renderEngine.getVoicePosition(voice) >= renderEngine.getVoiceSafeReadMin(voice));
+                    expect(renderEngine.getVoicePosition(voice) <= renderEngine.getVoiceSafeReadMax(voice));
+                }
+            }
+            driftRms[driftIndex] = std::sqrt(energy / (240.0 * renderBuffer.getNumSamples()));
+            expectGreaterThan(static_cast<float>(driftRms[driftIndex]), 0.03f);
+            expectLessThan(maximumStep, 0.75f);
+        }
+        const auto [minimumRms, maximumRms] = std::minmax_element(driftRms.begin(), driftRms.end());
+        expectGreaterThan(static_cast<float>(*minimumRms), static_cast<float>(*maximumRms * 0.5));
 
         beginTest("Low Drift pitch range is much smaller than maximum Drift");
         const auto maximumPitchDeviation = [](float drift)

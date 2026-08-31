@@ -96,7 +96,7 @@ float LivingFreezeEngine::windowValue(double phase) noexcept
 float LivingFreezeEngine::pitchDriftAmount(float normalizedDrift) noexcept
 {
     const auto clampedDrift = juce::jlimit(0.0f, 1.0f, normalizedDrift);
-    return std::pow(clampedDrift, 2.5f);
+    return std::pow(clampedDrift, 2.0f);
 }
 
 float LivingFreezeEngine::getVoicePlaybackSpeed(int index) const noexcept
@@ -122,6 +122,42 @@ float LivingFreezeEngine::getVoicePosition(int index) const noexcept
     return juce::isPositiveAndBelow(index, textureVoiceCount)
         ? static_cast<float>(voices[static_cast<size_t>(index)].readPosition
                              + voices[static_cast<size_t>(index)].positionOffset) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoicePositionOffset(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].positionOffset) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoicePositionTarget(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].positionTarget) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoiceStereoOffset(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].stereoOffset) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoiceStereoTarget(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].stereoTarget) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoiceSafeReadMin(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].safeReadMin) : 0.0f;
+}
+
+float LivingFreezeEngine::getVoiceSafeReadMax(int index) const noexcept
+{
+    return juce::isPositiveAndBelow(index, textureVoiceCount)
+        ? static_cast<float>(voices[static_cast<size_t>(index)].safeReadMax) : 0.0f;
 }
 
 void LivingFreezeEngine::updateVoiceSafety(TextureVoice& voice) noexcept

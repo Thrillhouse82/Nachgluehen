@@ -29,12 +29,18 @@ public:
     float getGlobalPlaybackSpeed() const noexcept { return static_cast<float>(globalPlaybackSpeed); }
     float getGlobalPlaybackSpeedTarget() const noexcept { return static_cast<float>(globalPlaybackSpeedTarget); }
     float getVoicePosition(int index) const noexcept;
+    float getVoicePositionOffset(int index) const noexcept;
+    float getVoicePositionTarget(int index) const noexcept;
+    float getVoiceStereoOffset(int index) const noexcept;
+    float getVoiceStereoTarget(int index) const noexcept;
+    float getVoiceSafeReadMin(int index) const noexcept;
+    float getVoiceSafeReadMax(int index) const noexcept;
     float getTextureGainCompensation() const noexcept { return textureGainCompensation; }
 
 private:
     static constexpr int textureVoiceCount = 8;
     static constexpr double captureDurationSeconds = 0.6;
-    static constexpr double maxPositionDriftMilliseconds = 35.0;
+    static constexpr double maxPositionDriftMilliseconds = 55.0;
     static constexpr double movementSmoothingSeconds = 0.45;
     static constexpr double maxPlaybackDrift = 0.08;
     static constexpr double pitchSmoothingSeconds = 1.50;
@@ -42,10 +48,10 @@ private:
     static constexpr double textureGainFloor = 0.12;
     static constexpr double textureGainCeiling = 0.55;
     static constexpr double textureEnergyVoiceScale = 0.28;
-    static constexpr double maximumGlobalPitchDeviation = 0.035;
-    static constexpr double globalPitchRandomWalkStep = 0.006;
-    static constexpr double localPitchRandomWalkStep = 0.00035;
-    static constexpr double localPitchMaximumDeviation = 0.0035;
+    static constexpr double maximumGlobalPitchDeviation = 0.055;
+    static constexpr double globalPitchRandomWalkStep = 0.009;
+    static constexpr double localPitchRandomWalkStep = 0.0004;
+    static constexpr double localPitchMaximumDeviation = 0.0045;
     static constexpr double minimumWindowFraction = 0.42;
     static constexpr double maximumWindowFraction = 0.58;
     static constexpr double voiceSpacingFraction = 1.0 / static_cast<double>(textureVoiceCount);
