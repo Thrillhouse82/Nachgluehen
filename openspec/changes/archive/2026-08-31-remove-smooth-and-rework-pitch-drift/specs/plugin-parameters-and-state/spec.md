@@ -1,10 +1,4 @@
-# plugin-parameters-and-state Specification
-
-## Purpose
-
-This capability defines the stable host-facing parameter and project-state contract for automating Nachgluehen and restoring its visible settings predictably across project reloads.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Initial parameter contract
 The plugin SHALL expose Freeze as a boolean parameter defaulting to disabled, Drift as a continuous UI percentage parameter in the range 0-100% defaulting to 20%, Dry/Wet as a continuous UI percentage parameter in the range 0-100% defaulting to 50%, and Output Gain as a continuous dB parameter with a mute endpoint, a maximum of +12 dB, and a default of 0 dB. Drift and Dry/Wet values SHALL map linearly to normalized processing ranges 0.0-1.0. Output Gain SHALL use a monotonic invertible asymmetric normalized mapping with mute at 0.0, 0 dB at 0.5, and +12 dB at 1.0.
@@ -74,3 +68,9 @@ The plugin SHALL serialize and restore all visible parameter values, including F
 #### Scenario: Frozen audio is not required in state
 - **WHEN** a project is reopened with Freeze restored as enabled
 - **THEN** the parameter state is restored safely even if the previously captured audio fragment is unavailable
+
+## REMOVED Requirements
+
+### Requirement: Smooth mapping is normalized
+**Reason**: Smooth is no longer a host-facing parameter.
+**Migration**: Remove Smooth parameter automation and state expectations.

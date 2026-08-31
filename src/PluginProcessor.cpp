@@ -37,9 +37,8 @@ void NachgluehenAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     juce::ignoreUnused(midi);
     const auto freeze = parameters.getRawParameterValue(nachgluehen::parameterIds::freeze)->load() >= 0.5f;
     const auto drift = parameters.getRawParameterValue(nachgluehen::parameterIds::drift)->load();
-    const auto smooth = parameters.getRawParameterValue(nachgluehen::parameterIds::smooth)->load();
     const auto dryWet = parameters.getRawParameterValue(nachgluehen::parameterIds::dryWet)->load();
-    engine.process(buffer, freeze, drift, dryWet, smooth);
+    engine.process(buffer, freeze, drift, dryWet);
 
     const auto outputGainDb = juce::jlimit(muteOutputGainDb, nachgluehen::outputGainMaximumDb,
         parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load());

@@ -18,13 +18,11 @@ public:
         NachgluehenAudioProcessor processor;
         auto* freezeParameter = processor.parameters.getParameter(nachgluehen::parameterIds::freeze);
         auto* driftParameter = processor.parameters.getParameter(nachgluehen::parameterIds::drift);
-        auto* smoothParameter = processor.parameters.getParameter(nachgluehen::parameterIds::smooth);
         auto* dryWetParameter = processor.parameters.getParameter(nachgluehen::parameterIds::dryWet);
         auto* outputGainParameter = processor.parameters.getParameter(nachgluehen::parameterIds::outputGain);
-        expect(freezeParameter != nullptr && driftParameter != nullptr && smoothParameter != nullptr && dryWetParameter != nullptr && outputGainParameter != nullptr);
+        expect(freezeParameter != nullptr && driftParameter != nullptr && dryWetParameter != nullptr && outputGainParameter != nullptr);
         expectWithinAbsoluteError(freezeParameter->getDefaultValue(), 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(driftParameter->getDefaultValue(), 0.20f, 1.0e-6f);
-        expectWithinAbsoluteError(smoothParameter->getDefaultValue(), 0.50f, 1.0e-6f);
         expectWithinAbsoluteError(dryWetParameter->getDefaultValue(), 0.50f, 1.0e-6f);
         expectWithinAbsoluteError(processor.parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load(), 0.0f, 1.0e-6f);
         expectWithinAbsoluteError(outputGainParameter->getNormalisableRange().start, -100.0f, 1.0e-6f);
@@ -42,13 +40,8 @@ public:
         expectWithinAbsoluteError(driftParameter->getNormalisableRange().end, 1.0f, 1.0e-6f);
         expectEquals(driftParameter->getText(0.5f, 8), juce::String("50"));
         expectWithinAbsoluteError(driftParameter->getValueForText("50"), 0.5f, 1.0e-6f);
-        expectWithinAbsoluteError(smoothParameter->getNormalisableRange().start, 0.0f, 1.0e-6f);
-        expectWithinAbsoluteError(smoothParameter->getNormalisableRange().end, 1.0f, 1.0e-6f);
-        expectEquals(smoothParameter->getText(0.5f, 8), juce::String("50"));
-        expectWithinAbsoluteError(smoothParameter->getValueForText("100"), 1.0f, 1.0e-6f);
         processor.parameters.getParameter(nachgluehen::parameterIds::freeze)->setValueNotifyingHost(1.0f);
         processor.parameters.getParameter(nachgluehen::parameterIds::drift)->setValueNotifyingHost(0.73f);
-        processor.parameters.getParameter(nachgluehen::parameterIds::smooth)->setValueNotifyingHost(0.91f);
         processor.parameters.getParameter(nachgluehen::parameterIds::dryWet)->setValueNotifyingHost(0.11f);
         outputGainParameter->setValueNotifyingHost(outputGainParameter->getNormalisableRange().convertTo0to1(12.0f));
         juce::MemoryBlock state;
@@ -56,29 +49,36 @@ public:
         NachgluehenAudioProcessor restored;
         restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
         expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::drift)->load(), 0.73f, 0.002f);
-        expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::smooth)->load(), 0.91f, 0.002f);
         expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::dryWet)->load(), 0.11f, 0.002f);
         expect(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::freeze)->load() >= 0.5f);
         expectWithinAbsoluteError(restored.parameters.getRawParameterValue(nachgluehen::parameterIds::outputGain)->load(), 12.0f, 0.11f);
+        expect(restored.parameters.getParameter("smooth") == nullptr);
 
-        beginTest("Smooth editor control uses the shared equal-size rotary layout");
+        beginTest("Legacy state with an unknown Smooth value restores safely");
+        processor.parameters.state.setProperty("smooth", 0.91f, nullptr);
+        juce::MemoryBlock legacyBinary;
+        processor.getStateInformation(legacyBinary);
+        processor.parameters.state.removeProperty("smooth", nullptr);
+        NachgluehenAudioProcessor legacyRestored;
+        legacyRestored.setStateInformation(legacyBinary.getData(), static_cast<int>(legacyBinary.getSize()));
+        expect(legacyRestored.parameters.getParameter("smooth") == nullptr);
+        expectWithinAbsoluteError(legacyRestored.parameters.getRawParameterValue(nachgluehen::parameterIds::drift)->load(), 0.73f, 0.002f);
+
+        beginTest("Editor presents the three equal-size rotary controls without Smooth");
         juce::ScopedJuceInitialiser_GUI gui;
         NachgluehenAudioProcessor editorProcessor;
         std::unique_ptr<juce::AudioProcessorEditor> editor(editorProcessor.createEditor());
         const auto* driftControl = dynamic_cast<const juce::Slider*>(editor->findChildWithID("drift-control"));
-        const auto* smoothControl = dynamic_cast<const juce::Slider*>(editor->findChildWithID("smooth-control"));
         const auto* dryWetControl = dynamic_cast<const juce::Slider*>(editor->findChildWithID("dry-wet-control"));
         const auto* outputControl = dynamic_cast<const juce::Slider*>(editor->findChildWithID("output-gain-control"));
-        expect(driftControl != nullptr && smoothControl != nullptr && dryWetControl != nullptr && outputControl != nullptr);
-        if (driftControl != nullptr && smoothControl != nullptr && dryWetControl != nullptr && outputControl != nullptr)
+        const auto* smoothControl = editor->findChildWithID("smooth-control");
+        expect(driftControl != nullptr && dryWetControl != nullptr && outputControl != nullptr && smoothControl == nullptr);
+        if (driftControl != nullptr && dryWetControl != nullptr && outputControl != nullptr)
         {
-            expectEquals(driftControl->getBounds().getWidth(), smoothControl->getBounds().getWidth());
-            expectEquals(smoothControl->getBounds().getWidth(), dryWetControl->getBounds().getWidth());
+            expectEquals(driftControl->getBounds().getWidth(), dryWetControl->getBounds().getWidth());
             expectEquals(dryWetControl->getBounds().getWidth(), outputControl->getBounds().getWidth());
-            expectEquals(driftControl->getBounds().getHeight(), smoothControl->getBounds().getHeight());
-            expectEquals(smoothControl->getBounds().getHeight(), dryWetControl->getBounds().getHeight());
+            expectEquals(driftControl->getBounds().getHeight(), dryWetControl->getBounds().getHeight());
             expectEquals(dryWetControl->getBounds().getHeight(), outputControl->getBounds().getHeight());
-            expectWithinAbsoluteError(static_cast<float>(smoothControl->getValue()), 0.5f, 1.0e-6f);
         }
 
         beginTest("Output Gain handles host automation, staging, and finite output");
@@ -343,91 +343,6 @@ public:
             previousWindow = value;
         }
 
-        beginTest("Smooth window endpoints remain continuous");
-        for (const auto smooth : { 0.0f, 0.5f, 1.0f })
-        {
-            expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::windowValue(0.0, smooth), 0.0f, 1.0e-6f);
-            expectWithinAbsoluteError(nachgluehen::LivingFreezeEngine::windowValue(1.0, smooth), 0.0f, 1.0e-6f);
-            float previous = 0.0f;
-            for (int i = 0; i <= 200; ++i)
-            {
-                const auto value = nachgluehen::LivingFreezeEngine::windowValue(i / 200.0, smooth);
-                expect(value >= 0.0f && std::isfinite(value));
-                expectLessThan(std::abs(value - previous), 0.03f);
-                previous = value;
-            }
-        }
-
-        beginTest("Smooth reduces transient energy while retaining Drift movement");
-        const auto renderTransientTexture = [](float smooth, float drift, float& maximumStep)
-        {
-            nachgluehen::LivingFreezeEngine smoothEngine;
-            smoothEngine.prepare(48000.0, 256);
-            smoothEngine.setSeed(1337);
-            juce::AudioBuffer<float> smoothBuffer(2, 256);
-            for (int block = 0; block < 128; ++block)
-            {
-                for (int sample = 0; sample < smoothBuffer.getNumSamples(); ++sample)
-                {
-                    const auto index = block * smoothBuffer.getNumSamples() + sample;
-                    const auto value = 0.16f * std::sin(index * 0.041f) + (index % 1200 == 0 ? 1.0f : 0.0f);
-                    smoothBuffer.setSample(0, sample, value);
-                    smoothBuffer.setSample(1, sample, value);
-                }
-                smoothEngine.process(smoothBuffer, false, drift, 0.0f, smooth);
-            }
-            double attackEnergy = 0.0;
-            float previous = 0.0f;
-            maximumStep = 0.0f;
-            for (int block = 0; block < 180; ++block)
-            {
-                smoothBuffer.clear();
-                smoothEngine.process(smoothBuffer, true, drift, 1.0f, smooth);
-                for (int sample = 0; sample < smoothBuffer.getNumSamples(); ++sample)
-                {
-                    const auto value = smoothBuffer.getSample(0, sample);
-                    attackEnergy += juce::jmax(0.0f, std::abs(value) - std::abs(previous));
-                    maximumStep = juce::jmax(maximumStep, std::abs(value - previous));
-                    previous = value;
-                }
-            }
-            return attackEnergy;
-        };
-        float smoothZeroStep = 0.0f, smoothMaximumStep = 0.0f, smoothDriftStep = 0.0f;
-        const auto zeroAttackEnergy = renderTransientTexture(0.0f, 0.0f, smoothZeroStep);
-        const auto maximumAttackEnergy = renderTransientTexture(1.0f, 0.0f, smoothMaximumStep);
-        const auto driftAttackEnergy = renderTransientTexture(1.0f, 1.0f, smoothDriftStep);
-        expect(maximumAttackEnergy < zeroAttackEnergy * 0.85,
-               "zero=" + juce::String(zeroAttackEnergy) + " maximum=" + juce::String(maximumAttackEnergy));
-        expectGreaterThan(driftAttackEnergy, 0.001, "drift attack energy=" + juce::String(driftAttackEnergy));
-        expectLessThan(smoothMaximumStep, 0.75f, "maximum Smooth step=" + juce::String(smoothMaximumStep));
-        expectLessThan(smoothDriftStep, 0.75f, "maximum Smooth/Drift step=" + juce::String(smoothDriftStep));
-
-        beginTest("Smooth automation remains finite and click-safe");
-        nachgluehen::LivingFreezeEngine smoothAutomationEngine;
-        smoothAutomationEngine.prepare(48000.0, 1);
-        juce::AudioBuffer<float> smoothAutomationBuffer(2, 1);
-        for (int sample = 0; sample < 4096; ++sample)
-        {
-            const auto value = std::sin(sample * 0.071f) + (sample % 311 == 0 ? 0.8f : 0.0f);
-            smoothAutomationBuffer.setSample(0, 0, value);
-            smoothAutomationBuffer.setSample(1, 0, value);
-            smoothAutomationEngine.process(smoothAutomationBuffer, false, 0.0f, 0.0f, 0.0f);
-        }
-        float previousSmoothOutput = 0.0f;
-        float maximumSmoothAutomationStep = 0.0f;
-        for (int sample = 0; sample < 4096; ++sample)
-        {
-            smoothAutomationBuffer.clear();
-            const auto smooth = sample < 1024 ? 0.0f : (sample < 2048 ? 1.0f : 0.35f);
-            smoothAutomationEngine.process(smoothAutomationBuffer, true, sample % 2 == 0 ? 1.0f : 0.6f, 1.0f, smooth);
-            const auto output = smoothAutomationBuffer.getSample(0, 0);
-            expect(std::isfinite(output));
-            maximumSmoothAutomationStep = juce::jmax(maximumSmoothAutomationStep, std::abs(output - previousSmoothOutput));
-            previousSmoothOutput = output;
-        }
-        expectLessThan(maximumSmoothAutomationStep, 0.75f);
-
         beginTest("Buffer boundaries remain click-free at high Drift");
         nachgluehen::LivingFreezeEngine boundaryEngine;
         boundaryEngine.prepare(1000.0, 64);
@@ -520,8 +435,8 @@ public:
                 energyRms += sample * sample;
                 energyPeak = juce::jmax(energyPeak, std::abs(sample));
             }
-            expect(energyEngine.getTextureGainCompensation() >= 0.14f - 1.0e-4f);
-            expect(energyEngine.getTextureGainCompensation() <= 0.60f + 1.0e-4f);
+            expect(energyEngine.getTextureGainCompensation() >= 0.12f - 1.0e-4f);
+            expect(energyEngine.getTextureGainCompensation() <= 0.55f + 1.0e-4f);
         }
         energyRms = std::sqrt(energyRms / (360.0f * energyBuffer.getNumSamples()));
         expectGreaterThan(energyRms, 0.035f);
@@ -589,6 +504,92 @@ public:
             expectLessThan(std::abs(speed - previousSpeed), 0.01f);
             previousSpeed = speed;
         }
+
+        beginTest("Shared pitch drift stays coherent, bounded, and restart-continuous");
+        nachgluehen::LivingFreezeEngine coherenceEngine;
+        coherenceEngine.prepare(1000.0, 64);
+        coherenceEngine.setSeed(2026);
+        juce::AudioBuffer<float> coherenceBuffer(2, 64);
+        for (int block = 0; block < 12; ++block)
+        {
+            for (int sample = 0; sample < 64; ++sample)
+            {
+                const auto value = std::sin((block * 64 + sample) * 0.043f);
+                coherenceBuffer.setSample(0, sample, value);
+                coherenceBuffer.setSample(1, sample, value);
+            }
+            coherenceEngine.process(coherenceBuffer, false, 0.0f, 0.0f);
+        }
+        coherenceBuffer.clear();
+        coherenceEngine.process(coherenceBuffer, true, 1.0f, 1.0f);
+        float previousGlobalSpeed = coherenceEngine.getGlobalPlaybackSpeed();
+        std::array<float, 8> previousVoiceSpeeds{};
+        for (int index = 0; index < 8; ++index)
+            previousVoiceSpeeds[static_cast<size_t>(index)] = coherenceEngine.getVoicePlaybackSpeed(index);
+        for (int block = 0; block < 80; ++block)
+        {
+            coherenceBuffer.clear();
+            coherenceEngine.process(coherenceBuffer, true, 1.0f, 1.0f);
+            const auto globalSpeed = coherenceEngine.getGlobalPlaybackSpeed();
+            expect(std::isfinite(globalSpeed));
+            expectLessThan(std::abs(globalSpeed - previousGlobalSpeed), 0.01f);
+            previousGlobalSpeed = globalSpeed;
+            for (int index = 0; index < 8; ++index)
+            {
+                const auto speed = coherenceEngine.getVoicePlaybackSpeed(index);
+                const auto factor = coherenceEngine.getVoicePitchFactor(index);
+                expect(std::isfinite(speed) && std::isfinite(factor));
+                expectLessThan(std::abs(factor - 1.0f), 0.004f);
+                expectLessThan(std::abs(speed / globalSpeed - 1.0f), 0.004f);
+                expectLessThan(std::abs(speed - previousVoiceSpeeds[static_cast<size_t>(index)]), 0.01f);
+                previousVoiceSpeeds[static_cast<size_t>(index)] = speed;
+            }
+        }
+
+        beginTest("Zero Drift keeps global and local pitch at unity");
+        for (int block = 0; block < 12; ++block)
+        {
+            coherenceBuffer.clear();
+            coherenceEngine.process(coherenceBuffer, true, 0.0f, 1.0f);
+            expectWithinAbsoluteError(coherenceEngine.getGlobalPlaybackSpeed(), 1.0f, 1.0e-6f);
+            expectWithinAbsoluteError(coherenceEngine.getGlobalPlaybackSpeedTarget(), 1.0f, 1.0e-6f);
+            for (int index = 0; index < 8; ++index)
+            {
+                expectWithinAbsoluteError(coherenceEngine.getVoicePlaybackSpeed(index), 1.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoicePitchFactor(index), 1.0f, 1.0e-6f);
+                expectWithinAbsoluteError(coherenceEngine.getVoiceSpeedTarget(index), 1.0f, 1.0e-6f);
+            }
+        }
+
+        beginTest("Low Drift pitch range is much smaller than maximum Drift");
+        const auto maximumPitchDeviation = [](float drift)
+        {
+            nachgluehen::LivingFreezeEngine pitchRangeEngine;
+            pitchRangeEngine.prepare(1000.0, 64);
+            pitchRangeEngine.setSeed(88);
+            juce::AudioBuffer<float> pitchRangeBuffer(2, 64);
+            for (int block = 0; block < 12; ++block)
+            {
+                for (int sample = 0; sample < 64; ++sample)
+                {
+                    const auto value = std::sin((block * 64 + sample) * 0.029f);
+                    pitchRangeBuffer.setSample(0, sample, value);
+                    pitchRangeBuffer.setSample(1, sample, value);
+                }
+                pitchRangeEngine.process(pitchRangeBuffer, false, 0.0f, 0.0f);
+            }
+            float maximumDeviation = 0.0f;
+            for (int block = 0; block < 100; ++block)
+            {
+                pitchRangeBuffer.clear();
+                pitchRangeEngine.process(pitchRangeBuffer, true, drift, 1.0f);
+                maximumDeviation = juce::jmax(maximumDeviation, std::abs(pitchRangeEngine.getGlobalPlaybackSpeed() - 1.0f));
+            }
+            return maximumDeviation;
+        };
+        const auto lowPitchDeviation = maximumPitchDeviation(0.2f);
+        const auto highPitchDeviation = maximumPitchDeviation(1.0f);
+        expectLessThan(lowPitchDeviation, highPitchDeviation * 0.2f);
 
         beginTest("Active drift changes move read positions without a jump");
         nachgluehen::LivingFreezeEngine driftChangeEngine;

@@ -8,7 +8,6 @@ namespace parameterIds
 {
 inline constexpr auto freeze = "freeze";
 inline constexpr auto drift = "drift";
-inline constexpr auto smooth = "smooth";
 inline constexpr auto dryWet = "dryWet";
 inline constexpr auto outputGain = "outputGain";
 }
@@ -63,8 +62,6 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
     parameters.push_back(std::make_unique<juce::AudioParameterBool>(parameterIds::freeze, "Freeze", false));
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         parameterIds::drift, "Drift", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.20f, percentAttributes()));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        parameterIds::smooth, "Smooth", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.50f, percentAttributes()));
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         parameterIds::dryWet, "Dry/Wet", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.50f, percentAttributes()));
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
